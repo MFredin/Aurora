@@ -1,5 +1,12 @@
 # M1 task list: Windows bring-up
 
+> **Status (Oct 2026):** steps 1 and 3 are done in code: everything type-checks and is clippy clean
+> for Windows, CI builds, tests and packages it on a Windows runner, the helper uses an elevated named
+> pipe, and HKLM items work through UAC. Step 2 has `examples/dump_scan.rs`, Startup folders and
+> 32-bit Run keys, NVMe detection via the storage stack, extended SMBIOS speeds, and a power plan read
+> from the registry. What's left needs a real PC: compare the collectors with ground truth (step 2),
+> view the UI in WebView2 (step 4), and measure the budget (step 5).
+
 Work top to bottom. Commit after each numbered step. Stop and report if a step reveals a design
 problem instead of working around it.
 

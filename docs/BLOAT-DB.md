@@ -13,7 +13,8 @@ File: `crates/forge-core/data/bloat.json`, embedded at build time. **Current con
 
 - `kind: appx` matches the package name (e.g. `Microsoft.BingNews`). `kind: startup` matches `name + command` of a Run entry.
 - Matching is case-insensitive substring. Keep patterns specific: a loose pattern is a false positive on someone's machine.
-- First match wins; order entries from specific to general.
+- A `keep` match always wins, whatever the order. Otherwise the first match wins; order entries from specific to general.
+- The helper refuses to disable anything that matches a `keep` entry, by name and by the live command line.
 
 ## Verdicts
 
@@ -39,5 +40,5 @@ Per-entry `curated`, `tested_on` (build + date), `source`, `oem` (optional), `re
 ## Quality gates (CI, M5)
 
 - A test that fails a release build if any entry has `curated: false`.
-- A test that no pattern is shorter than 4 characters and no two entries with different verdicts match the same sample string.
+- ~~A test that no pattern is shorter than 4 characters and no two entries with different verdicts match the same sample string.~~ Done (`bloat_patterns_are_specific_and_unambiguous`).
 - A test corpus of real startup/appx names from several OEM images to catch false positives.

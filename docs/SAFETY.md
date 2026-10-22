@@ -8,9 +8,11 @@ change that touches the system must clear.
 | Threat | Mitigation |
 |---|---|
 | Compromised or buggy webview asks for an arbitrary change | UI sends only finding ids. The shell resolves the plan from the last scan. Tauri capabilities expose only our own commands (no fs/shell/http plugins). |
-| Another local process talks to the helper | Production transport is a named pipe whose ACL admits only the installing user's SID. (Dev stdio transport is not for release.) |
+| Another local process talks to the helper | Two one-way named pipes with a random name, one instance each, local clients only; the app accepts the connection only from the PID it launched through UAC. The helper validates every request regardless (ADR-007). Dev stdio transport is not for release. |
 | A rule or DB entry proposes something dangerous | The helper re-validates every step against `ipc::validate`, independent of who produced it. |
-| A change breaks the system | Prior state is journaled; reversible steps have an inverse; restore point before first apply (M2). |
+| A change breaks the system | Prior state is journaled before the change (write-ahead); every step has an inverse; a restore point is requested before the first change of a session. |
+| A normal user plants journal entries for undo to replay | Journal folder is created admin-only and an existing folder not owned by SYSTEM/Administrators is refused (ADR-011). Undo inverses are still validated. |
+| The elevated helper binary is swapped | Per-machine install in Program Files, admin-writable only (ADR-012). |
 | Bad DB entry removes something needed | `keep` verdict for drivers/security components; `curated: false` data cannot ship in a release build (M5). |
 | Forge itself looks like malware (AV false positives) | No process injection, no service installs, no obfuscation, signed binaries, stable file paths. |
 
@@ -30,6 +32,8 @@ change that touches the system must clear.
 - Services: no disabling services in v0.x. (Revisit with a curated list and a strong reason.)
 - Installing drivers or software on the user's behalf.
 - Telemetry that leaves the machine without explicit opt-in.
+- Recommending that Memory integrity (HVCI/VBS) or other security features be turned off, even as advice.
+- Irreversible operations in the helper (packaged-app removal stays advice-only until it has a curated DB and a reinstall path, ADR-008).
 
 ## Review checklist for any PR that touches the system
 

@@ -12,8 +12,8 @@ every "current" cell below is unmeasured.
 | Full scan duration | under 5 s | unmeasured |
 | Frame drops in a running game during a scan | none visible (frametime spikes within noise) | unmeasured |
 | Installer size | small; WebView2 via bootstrapper, not bundled | unmeasured |
-| Frontend bundle | JS under 100 KB gzipped, CSS under 10 KB gzipped | 74 KB / 2 KB (scaffold) |
-| Helper idle | not running | by design |
+| Frontend bundle | JS under 100 KB gzipped, CSS under 10 KB gzipped | 76 KB / 2.2 KB |
+| Helper idle | not running (exits 5 min after the last request or when the app closes) | by design |
 
 ## How to measure (Windows)
 
@@ -28,10 +28,10 @@ every "current" cell below is unmeasured.
 ## Budget rules
 
 - No resident process when the window is closed. The helper exits when idle.
-- Nothing polls while the window is hidden. The footer's self-meter polls every 2 s only when visible.
+- Nothing polls while the window is hidden. The footer's self-meter polls every 2 s only when visible, and counts the app's whole process tree (WebView2 included).
 - A new frontend dependency needs a size check and a reason. Prefer a few lines of code over a library.
 - Animation: `transform` and `opacity` only; at most one looping animation; none under `prefers-reduced-motion`.
-- Collectors don't use WMI or PowerShell. Adding any child process requires an ADR.
+- Collectors don't use WMI, PowerShell or any child process (the power plan is now read from the registry). Adding one requires an ADR.
 - Add EcoQoS (`SetProcessInformation` with `ProcessPowerThrottling`) to the app process while idle or hidden.
 
 ## The WebView2 question (decide in M1)

@@ -15,18 +15,19 @@ Principles that decide arguments:
 
 ```
  UI (React, WebView2)            unprivileged
-   │  invoke("scan") / ("apply_fix", id)   ← the UI only ever sends a finding id
+   │  invoke("scan") / ("apply_fix", finding id) / ("undo", journal id)   ← ids only
  Tauri shell (Rust)              unprivileged   holds last scan, resolves id → FixPlan
    ├─ forge-scan   collectors → Snapshot
-   ├─ forge-core   rules(Snapshot) → Findings, journal, allowlist
-   │  request: Apply{finding_id, step}
- forge-helper (Rust)             elevated, started on demand, exits when idle
-      validate(step) against allowlist → execute → journal prior state
+   ├─ forge-core   rules(Snapshot) → Findings, journal reader, allowlist
+   │  named pipe (random name, one instance, client PID checked), UAC-launched
+ forge-helper (Rust)             elevated, started on first apply, exits after 5 min idle
+      validate(step) → re-check live system → journal intent → apply → journal outcome
+      undo(journal id) → inverse computed from its own journal → same path
 ```
 
 Why this split: the webview and the shell never hold admin rights. A compromised UI can only name a
-finding from the last scan, and the helper only accepts a closed set of typed operations
-(`FixStep`), never a shell string.
+finding from the last scan or a journal entry, and the helper only accepts a closed set of typed
+operations (`FixStep`), never a shell string. See ADR-002, ADR-007.
 
 ## 3. Performance budget
 
@@ -44,8 +45,8 @@ These are targets. The first milestone is to measure them and fail CI when they 
 Rules for contributors:
 - Collectors read, they never shell out to PowerShell or WMI. If WMI is unavoidable, call it once per scan.
 - Nothing polls while the window is hidden (see `Overhead.tsx`).
-- No new frontend dependency without a bundle-size check. Currently React only (74 KB gzipped JS).
-- The helper exits after about 30 s idle. It must never be left running.
+- No new frontend dependency without a bundle-size check. Currently React only (76 KB gzipped JS).
+- The helper exits after 5 minutes idle or when the app closes (ADR-007). It must never be left running.
 
 **Biggest risk:** WebView2 runs as several `msedgewebview2.exe` processes that count toward real
 memory. If measured idle memory misses the budget, fall back to a native UI (egui or WinUI). The
@@ -56,15 +57,20 @@ waits, and asserts on RSS and CPU.
 
 ## 4. Safety model
 
-- **Allowlist:** `ipc::validate` permits only known power plans, a short list of registry values,
-  and names without shell metacharacters. Anything else is rejected before it reaches the executor.
-  Defender and other security settings are not on the list and never will be.
-- **Journal:** each applied step is appended to `%ProgramData%\Forge\journal.jsonl` with the prior
-  state. `journal::inverse` produces the undo step. Packaged-app removal is marked irreversible.
-- **Advice-only findings:** firmware (XMP/EXPO) and hardware (HDD to SSD) never get an auto-fix.
-- **Context rules:** no high-performance power plan on a laptop running on battery.
-- **Planned:** a System Restore point before the first apply, and a watcher that notices when a
-  Windows update reverts a change.
+- **Allowlist:** `ipc::validate` permits power plan GUIDs, one Game Bar registry value with values
+  0/1, and startup item names without shell metacharacters that don't match a `keep` entry. The
+  helper also re-reads the item's live command line and refuses protected components. Defender and
+  other security settings are not on the list and never will be.
+- **Journal (write-ahead):** `%ProgramData%\Forge\journal.jsonl`, in a folder only administrators
+  can write. An intent with the prior state is written before every change; no intent, no change.
+  `journal::inverse` produces the undo step. History shows applied, failed, interrupted and undone.
+- **Restore point:** requested once per session before the first change (Windows may reuse one
+  from the last 24 hours, or System Restore may be off; the UI says which).
+- **No irreversible operations:** packaged-app removal is advice only (ADR-008).
+- **Advice-only findings:** firmware (XMP/EXPO), hardware (SSD, second DIMM) and display settings.
+- **Context rules:** no High performance plan on a laptop on battery, on dual-CCD X3D CPUs, or where
+  the plan doesn't exist.
+- **Install:** per-machine, so the elevated helper binary is admin-writable only (ADR-012).
 
 ## 5. Rules and data
 
@@ -78,8 +84,8 @@ Curating and testing this list on real machines is the long-term moat and ongoin
 
 ## 6. UI concept
 
-Telemetry bench. The machine reads as a spec sheet across the top. Findings fall into lanes (Startup,
-Preinstalled apps, Power, Memory, Storage); each lane has a bar showing its share of estimated gain.
+Telemetry bench. The machine reads as a spec sheet across the top. Findings fall into lanes (Gaming, Startup,
+Memory, Storage, Power, Preinstalled apps); each lane has a bar showing its share of estimated gain.
 During a scan a single amber beam sweeps the lanes and results stream in. Selecting a finding opens
 its detail: why, what Forge found, exactly what will change, whether it can be undone.
 
@@ -88,7 +94,7 @@ its detail: why, what Forge found, exactly what will change, whether it can be u
 - Type: the Windows UI font (Segoe UI Variable) for speed and native feel; tabular numerals.
 - Risk is encoded by shape as well as color (filled circle, ring, diamond).
 - Copy: sentence case, plain verbs. One name per action ("Apply fix", then "Applied").
-- Unverified: the UI has been type-checked and built but not yet viewed in a browser or WebView2.
+- Viewed in Chromium in every state; not yet in WebView2 at 125%/150% scaling or high contrast.
 
 ## 6b. Not in the MVP on purpose
 
@@ -97,21 +103,26 @@ AI chat. Per-game settings need a performance dataset first.
 
 ## 7. Status
 
+"Verified here" means unit tests plus a Windows-target type-check and clippy from Linux. "CI" means
+compiled, tested and packaged on a GitHub Windows runner. Nobody has run it on a real PC yet.
+
 | Area | State |
 |---|---|
-| Model, rules, engine, bloat DB, journal, allowlist | Built, 7 tests passing |
-| Parsers (powercfg, startup state, SMBIOS memory speed) | Built, 6 tests passing |
-| Helper protocol and safety checks | Built, 2 tests passing |
-| UI | Built, type-checks, bundles. Sample-data mode for design work. Not yet viewed visually |
-| Windows collectors (`forge-scan/src/win.rs`) | Written, **never compiled**. Needs first build on Windows |
-| Helper Windows executor | Written, **never compiled**. Implements power plan and startup disable only |
-| Tauri shell | Written, **never compiled**. Linux sandbox lacked GTK libs and the Windows Rust target |
-| Not implemented | Appx removal, registry writes, undo from the UI, restore points, History screen, benchmarking, GPU driver checks, thermal checks, installer, code signing |
+| Model, rules (8), engine, bloat DB, journal, allowlist | Built, 24 tests |
+| Parsers (power names, StartupApproved, SMBIOS speeds/count/chassis, GPUs, refresh, sizes) | Built, 13 tests |
+| Helper protocol, write-ahead journal, undo, failure paths | Built, 7 tests with a fake executor |
+| Windows collectors (`forge-scan/src/win.rs`) | Type-checks and clippy clean for Windows; CI runs `dump_scan` on a runner. Not compared against a real PC yet |
+| Helper Windows executor, journal ACL, restore point | Type-checks and clippy clean for Windows. Not run elevated yet |
+| Tauri shell, named pipe + UAC launch | Type-checks and clippy clean for Windows. Not run yet |
+| UI | Built and viewed in Chromium in every state (idle, scanning, results, advice, applied, history, 820 px). Not viewed in WebView2 |
+| Installer | NSIS per-machine, built in CI. Unsigned |
+| Not implemented | Prove step (benchmarks), driver/thermal checks, per-game profiles, Windows Update revert detection, EcoQoS, code signing, auto-update |
 
 ## 8. Next steps
 
-1. Compile on Windows and smoke-test scan and apply on a real machine and a VM.
-2. Measure idle memory and CPU of the packaged app. Decide WebView2 vs native against section 3.
-3. Implement undo end to end (history screen, startup re-enable op).
-4. Add the Prove step: boot time from the event log, idle RAM and CPU deltas, then PresentMon frametimes.
-5. Replace the placeholder impact estimates with measured values and start curating the bloat DB.
+1. Install the CI build on a real Windows 11 PC and a VM: scan, compare with `dump_scan`, apply and
+   undo each fix, check `%ProgramData%\Forge\journal.jsonl`.
+2. Measure idle memory and CPU of the installed app (`PERF-BUDGET.md`). Decide WebView2 vs native.
+3. Add the Prove step: boot time from the event log, idle RAM and CPU deltas, then PresentMon frametimes.
+4. Replace the placeholder startup estimates with measured values and start curating the bloat DB.
+5. Code signing, then a public build under the final product name.
