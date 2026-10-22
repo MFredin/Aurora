@@ -41,9 +41,34 @@ pub struct Impact {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StartupLocation {
+    /// HKCU\...\Run
     HkcuRun,
+    /// HKLM\...\Run (64-bit view)
     HklmRun,
-    StartupFolder,
+    /// HKLM\Software\WOW6432Node\...\Run (32-bit apps)
+    HklmRun32,
+    /// %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+    StartupFolderUser,
+    /// %ProgramData%\Microsoft\Windows\Start Menu\Programs\StartUp
+    StartupFolderCommon,
+}
+
+impl StartupLocation {
+    /// Where Windows (and Task Manager) records the enabled/disabled state for this location.
+    pub fn approved_key(self) -> (Hive, &'static str) {
+        const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        const RUN32: &str =
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32";
+        const FOLDER: &str =
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder";
+        match self {
+            Self::HkcuRun => (Hive::Hkcu, RUN),
+            Self::HklmRun => (Hive::Hklm, RUN),
+            Self::HklmRun32 => (Hive::Hklm, RUN32),
+            Self::StartupFolderUser => (Hive::Hkcu, FOLDER),
+            Self::StartupFolderCommon => (Hive::Hklm, FOLDER),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,15 +82,19 @@ pub enum Hive {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum FixStep {
+    /// Mark a startup item disabled, the same way Task Manager does.
     DisableStartupItem {
         name: String,
         location: StartupLocation,
     },
+    /// Put back the StartupApproved value a disable replaced (`None`: there was none).
+    RestoreStartupItem {
+        name: String,
+        location: StartupLocation,
+        prior: Option<Vec<u8>>,
+    },
     SetPowerPlan {
         guid: String,
-    },
-    RemoveAppx {
-        package_name: String,
     },
     SetRegistryDword {
         hive: Hive,
@@ -73,12 +102,18 @@ pub enum FixStep {
         name: String,
         value: u32,
     },
+    /// Inverse of `SetRegistryDword` when the value did not exist before.
+    DeleteRegistryValue {
+        hive: Hive,
+        key: String,
+        name: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct FixPlan {
     pub steps: Vec<FixStep>,
-    /// False when undo is impossible (e.g. removing a packaged app).
+    /// False when undo is impossible.
     pub reversible: bool,
 }
 
@@ -94,14 +129,22 @@ pub struct Finding {
     pub impact: Impact,
     pub risk: Risk,
     pub confidence: Confidence,
-    /// None means advice only: the fix is hardware or a BIOS setting.
+    /// None means advice only: the fix is hardware, a BIOS setting, or something Forge does not
+    /// change for you.
     pub fix: Option<FixPlan>,
     pub advice: Option<String>,
+    /// Importance used for ranking when there is no impact estimate (advice-only findings).
+    /// Chosen per rule; see docs/DECISIONS.md ADR-009.
+    pub priority: f32,
+    /// Ranking score, filled in by the engine. Higher is shown first.
+    #[serde(default)]
+    pub score: f32,
 }
 
 impl Finding {
-    /// Ranking score: estimated benefit, discounted by confidence and risk.
-    pub fn score(&self) -> f32 {
+    /// Ranking score: the larger of the estimated benefit and the rule's priority, discounted
+    /// by confidence and risk.
+    pub fn compute_score(&self) -> f32 {
         let benefit = self.impact.boot_ms as f32 / 1000.0
             + self.impact.idle_ram_mb as f32 / 200.0
             + self.impact.idle_cpu_pct * 2.0;
@@ -115,6 +158,6 @@ impl Finding {
             Risk::Caution => 0.8,
             Risk::Expert => 0.5,
         };
-        benefit * c * r
+        benefit.max(self.priority) * c * r
     }
 }

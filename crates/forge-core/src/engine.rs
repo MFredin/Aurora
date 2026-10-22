@@ -4,7 +4,7 @@ use crate::rules::Rule;
 use crate::snapshot::Snapshot;
 
 /// Runs every rule and calls `on_finding` as results appear, so the UI can stream them.
-/// Returns all findings sorted best-first.
+/// Each finding carries its `score`; the returned list is sorted best-first.
 pub fn scan(
     s: &Snapshot,
     db: &BloatDb,
@@ -13,11 +13,12 @@ pub fn scan(
 ) -> Vec<Finding> {
     let mut all = Vec::new();
     for rule in rules {
-        for f in rule.evaluate(s, db) {
+        for mut f in rule.evaluate(s, db) {
+            f.score = f.compute_score();
             on_finding(&f);
             all.push(f);
         }
     }
-    all.sort_by(|a, b| b.score().total_cmp(&a.score()));
+    all.sort_by(|a, b| b.score.total_cmp(&a.score));
     all
 }

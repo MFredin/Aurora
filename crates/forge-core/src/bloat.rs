@@ -39,11 +39,24 @@ impl BloatDb {
         serde_json::from_str(EMBEDDED).expect("embedded bloat.json must be valid")
     }
 
-    /// First entry of `kind` whose pattern appears in `haystack` (case-insensitive).
+    /// The entry of `kind` whose pattern appears in `haystack` (case-insensitive).
+    /// A `keep` match always wins, whatever the entry order, so a broad pattern can never
+    /// flag a driver or security component.
     pub fn lookup(&self, kind: Kind, haystack: &str) -> Option<&Entry> {
         let h = haystack.to_lowercase();
+        let matches =
+            |e: &&Entry| e.kind == kind && e.patterns.iter().any(|p| h.contains(p.as_str()));
         self.entries
             .iter()
-            .find(|e| e.kind == kind && e.patterns.iter().any(|p| h.contains(p.as_str())))
+            .filter(matches)
+            .find(|e| e.verdict == Verdict::Keep)
+            .or_else(|| self.entries.iter().find(matches))
+    }
+
+    /// True when `haystack` matches a `keep` entry. The helper uses this to refuse a change
+    /// to a protected item, independent of what produced the request.
+    pub fn is_keep(&self, kind: Kind, haystack: &str) -> bool {
+        self.lookup(kind, haystack)
+            .is_some_and(|e| e.verdict == Verdict::Keep)
     }
 }

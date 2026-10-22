@@ -3,6 +3,7 @@ pub mod engine;
 pub mod ipc;
 pub mod journal;
 pub mod model;
+pub mod paths;
 pub mod power;
 pub mod rules;
 pub mod snapshot;

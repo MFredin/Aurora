@@ -5,9 +5,10 @@ members = ["crates/forge-core", "crates/forge-scan", "crates/forge-helper"]
 exclude = ["src-tauri"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 version = "0.1.0"
 license = "MIT"
+rust-version = "1.85"
 
 [profile.release]
 opt-level = "s"      # small + fast enough; scanning is I/O bound

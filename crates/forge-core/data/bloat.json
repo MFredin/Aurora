@@ -1,22 +1,27 @@
 {
-  "version": 1,
+  "version": 2,
   "curated": false,
-  "note": "Seed data only. Every entry needs verification on real machines before shipping.",
+  "note": "Seed data only. Every entry needs verification on real machines before a public release (docs/BLOAT-DB.md). Keep entries always win over safe/caution matches.",
   "entries": [
+    { "id": "keep.security", "kind": "startup", "match": ["securityhealth", "windows security", "windowsdefender", "msmpeng", "smartscreen"], "verdict": "keep", "reason": "Part of Windows security. Leave it enabled." },
+    { "id": "keep.drivers", "kind": "startup", "match": ["nvidia", "nvbackend", "nvcontainer", "radeon", "amdrsserv", "igfx", "intel graphics", "rtkaud", "realtek", "waves maxx", "synaptics", "elan", "dolby"], "verdict": "keep", "reason": "Graphics, audio or input driver component. Leave it alone." },
+    { "id": "keep.xbox-identity", "kind": "appx", "match": ["microsoft.xboxidentityprovider", "microsoft.xboxgamingoverlay", "microsoft.gamingapp", "microsoft.gamingservices"], "verdict": "keep", "reason": "Needed for Xbox, Game Bar and Game Pass. Removing it breaks those." },
+    { "id": "keep.store", "kind": "appx", "match": ["microsoft.windowsstore", "microsoft.storepurchaseapp", "microsoft.desktopappinstaller", "microsoft.vclibs", "microsoft.ui.xaml", "microsoft.net.native", "microsoft.windowsappruntime", "microsoft.secheal", "microsoft.windows.shellexperiencehost", "microsoft.windows.startmenuexperiencehost"], "verdict": "keep", "reason": "Windows component or framework other apps depend on." },
+
     { "id": "appx.candycrush", "kind": "appx", "match": ["king.com.candycrush"], "verdict": "safe", "reason": "Preinstalled promotional game. Not used by Windows." },
     { "id": "appx.solitaire", "kind": "appx", "match": ["microsoft.microsoftsolitairecollection"], "verdict": "safe", "reason": "Optional game with ads in the free tier." },
     { "id": "appx.bingnews", "kind": "appx", "match": ["microsoft.bingnews"], "verdict": "safe", "reason": "News feed app. No system component depends on it." },
     { "id": "appx.bingweather", "kind": "appx", "match": ["microsoft.bingweather"], "verdict": "safe", "reason": "Weather app. The taskbar widget does not require it." },
     { "id": "appx.clipchamp", "kind": "appx", "match": ["clipchamp.clipchamp"], "verdict": "safe", "reason": "Video editor installed by default. Remove if unused." },
     { "id": "appx.tips", "kind": "appx", "match": ["microsoft.getstarted"], "verdict": "safe", "reason": "Tips app. No dependents." },
-    { "id": "appx.xbox-identity", "kind": "appx", "match": ["microsoft.xboxidentityprovider"], "verdict": "keep", "reason": "Needed for Xbox and Game Pass sign-in. Removing it breaks those." },
+
     { "id": "startup.spotify", "kind": "startup", "match": ["spotify"], "verdict": "caution", "reason": "Your choice. Launching at sign-in costs RAM and a little boot time." },
     { "id": "startup.discord", "kind": "startup", "match": ["discord"], "verdict": "caution", "reason": "Your choice. Often the heaviest chat app at startup." },
-    { "id": "startup.teams", "kind": "startup", "match": ["teams"], "verdict": "caution", "reason": "Keep if you use it for work. Otherwise it only adds startup time." },
+    { "id": "startup.teams", "kind": "startup", "match": ["msteams", "teams.exe", "com.squirrel.teams"], "verdict": "caution", "reason": "Keep if you use it for work. Otherwise it only adds startup time." },
     { "id": "startup.onedrive", "kind": "startup", "match": ["onedrive"], "verdict": "caution", "reason": "Keep if you sync files. Disabling it stops syncing until you open it." },
-    { "id": "startup.adobe-updater", "kind": "startup", "match": ["adobegcinvoker", "adobeacrobatupdate", "acrotray"], "verdict": "safe", "reason": "Background updater. It can run on demand instead." },
-    { "id": "startup.java-update", "kind": "startup", "match": ["jusched", "jucheck"], "verdict": "safe", "reason": "Updater only. Checking at sign-in is not needed." },
-    { "id": "startup.security-driver", "kind": "startup", "match": ["securityhealth", "windows security"], "verdict": "keep", "reason": "Part of Windows security. Leave it enabled." },
-    { "id": "startup.gpu-driver-ui", "kind": "startup", "match": ["nvidia", "radeon", "igfx", "rtkaud"], "verdict": "keep", "reason": "Graphics and audio driver components. Leave them alone." }
+    { "id": "startup.steam", "kind": "startup", "match": ["steam.exe"], "verdict": "caution", "reason": "Your choice. Steam can start when you open a game instead." },
+    { "id": "startup.epic", "kind": "startup", "match": ["epicgameslauncher"], "verdict": "caution", "reason": "Your choice. The launcher can start when you open a game instead." },
+    { "id": "startup.adobe-updater", "kind": "startup", "match": ["adobegcinvoker", "adobeacrobatupdate", "acrotray", "adobe updater"], "verdict": "safe", "reason": "Background updater. It can run on demand instead." },
+    { "id": "startup.java-update", "kind": "startup", "match": ["jusched", "jucheck"], "verdict": "safe", "reason": "Updater only. Checking at sign-in is not needed." }
   ]
 }

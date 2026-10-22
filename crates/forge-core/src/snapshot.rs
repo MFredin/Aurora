@@ -11,14 +11,21 @@ pub struct Snapshot {
     pub cpu_threads: u32,
     pub ram_total_mb: u64,
     pub ram_used_mb: u64,
-    /// DIMM speed as configured vs. as rated, when the collector can read both.
-    pub ram_configured_mhz: Option<u32>,
-    pub ram_rated_mhz: Option<u32>,
+    /// DIMM speed as configured vs. as rated (MT/s), when the collector can read both.
+    pub ram_configured_mts: Option<u32>,
+    pub ram_rated_mts: Option<u32>,
+    /// Number of populated memory slots, from SMBIOS.
+    pub ram_modules: Option<u32>,
     pub gpus: Vec<String>,
+    pub displays: Vec<Display>,
     pub disks: Vec<Disk>,
     pub startup: Vec<StartupItem>,
     pub appx: Vec<String>,
     pub active_power_plan: Option<PowerPlan>,
+    /// Every power plan present on this PC (some are missing on Modern Standby laptops).
+    pub power_plans: Vec<PowerPlan>,
+    /// Game Bar "Record what happened" (background recording).
+    pub game_dvr_background: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -26,6 +33,7 @@ pub struct Disk {
     pub mount: String,
     pub is_system: bool,
     pub kind: DiskKind,
+    /// Sizes in GB as Windows Explorer shows them (1 GB = 1024^3 bytes).
     pub total_gb: u64,
     pub free_gb: u64,
 }
@@ -47,10 +55,20 @@ pub struct StartupItem {
     pub enabled: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PowerPlan {
     pub guid: String,
     pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Display {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub current_hz: u32,
+    /// Highest refresh rate the display offers at its current resolution.
+    pub max_hz: u32,
 }
 
 impl Snapshot {
@@ -63,29 +81,41 @@ impl Snapshot {
             location: l,
             enabled: true,
         };
+        let plan = |guid: &str, name: &str| PowerPlan {
+            guid: guid.into(),
+            name: name.into(),
+        };
         Snapshot {
             os: "Windows 11 25H2".into(),
             cpu_name: "AMD Ryzen 7 7800X3D".into(),
             cpu_threads: 16,
             ram_total_mb: 32768,
             ram_used_mb: 9800,
-            ram_configured_mhz: Some(4800),
-            ram_rated_mhz: Some(6000),
+            ram_configured_mts: Some(4800),
+            ram_rated_mts: Some(6000),
+            ram_modules: Some(2),
             gpus: vec!["NVIDIA GeForce RTX 4070".into()],
+            displays: vec![Display {
+                name: "Display 1".into(),
+                width: 2560,
+                height: 1440,
+                current_hz: 60,
+                max_hz: 165,
+            }],
             disks: vec![
                 Disk {
                     mount: "C:".into(),
                     is_system: true,
                     kind: DiskKind::Nvme,
-                    total_gb: 1000,
-                    free_gb: 90,
+                    total_gb: 931,
+                    free_gb: 84,
                 },
                 Disk {
                     mount: "D:".into(),
                     is_system: false,
                     kind: DiskKind::Hdd,
-                    total_gb: 2000,
-                    free_gb: 900,
+                    total_gb: 1863,
+                    free_gb: 838,
                 },
             ],
             startup: vec![
@@ -102,7 +132,7 @@ impl Snapshot {
                 item(
                     "AdobeGCInvoker-1.0",
                     "C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe",
-                    HklmRun,
+                    HklmRun32,
                 ),
                 item(
                     "SecurityHealth",
@@ -120,10 +150,13 @@ impl Snapshot {
                 "Microsoft.BingNews".into(),
                 "Microsoft.XboxIdentityProvider".into(),
             ],
-            active_power_plan: Some(PowerPlan {
-                guid: crate::power::BALANCED.into(),
-                name: "Balanced".into(),
-            }),
+            active_power_plan: Some(plan(crate::power::BALANCED, "Balanced")),
+            power_plans: vec![
+                plan(crate::power::BALANCED, "Balanced"),
+                plan(crate::power::HIGH_PERFORMANCE, "High performance"),
+                plan(crate::power::POWER_SAVER, "Power saver"),
+            ],
+            game_dvr_background: Some(true),
             ..Default::default()
         }
     }

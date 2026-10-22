@@ -1,51 +1,104 @@
-//! Windows-only collectors. Everything here is cheap: registry reads and one firmware-table call.
-//! No WMI, no PowerShell, no child processes except `powercfg`.
-//! NOTE: written without a Windows compiler available; build on Windows and fix any signature drift.
+//! Windows-only collectors. Everything here is cheap: registry reads, a few Win32 queries and one
+//! firmware-table call. No WMI, no PowerShell, no child processes.
 use crate::{parse, smbios};
-use forge_core::model::StartupLocation;
-use forge_core::snapshot::{PowerPlan, Snapshot, StartupItem};
-use std::os::windows::process::CommandExt;
+use forge_core::model::{Hive, StartupLocation};
+use forge_core::snapshot::{DiskKind, Display, PowerPlan, Snapshot, StartupItem};
+use std::path::PathBuf;
 use winreg::RegKey;
 use winreg::enums::*;
 
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const APPROVED: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const RUN32: &str = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run";
+const POWER_SCHEMES: &str = r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes";
+const GAME_DVR: &str = r"Software\Microsoft\Windows\CurrentVersion\GameDVR";
 
 pub fn fill(s: &mut Snapshot) {
     s.startup = read_startup();
     s.appx = read_appx();
-    s.gpus = read_gpus();
-    s.active_power_plan = read_power_plan();
-    let (laptop, on_battery) = power_status();
-    s.is_laptop = laptop;
+    s.gpus = parse::clean_gpus(read_gpus());
+    s.displays = read_displays();
+    let (plans, active) = read_power_plans();
+    s.active_power_plan = active.and_then(|g| plans.iter().find(|p| p.guid == g).cloned());
+    s.power_plans = plans;
+    let (has_battery, on_battery) = power_status();
     s.on_battery = on_battery;
-    if let Some(table) = read_smbios() {
-        let (cfg, rated) = smbios::memory_speeds(&table);
-        s.ram_configured_mhz = cfg;
-        s.ram_rated_mhz = rated;
+    let info = read_smbios().map(|t| smbios::parse(&t)).unwrap_or_default();
+    s.ram_configured_mts = info.configured_mts;
+    s.ram_rated_mts = info.rated_mts;
+    s.ram_modules = info.modules;
+    // Chassis type is the better signal (a desktop on a UPS reports a battery).
+    s.is_laptop = info.portable.unwrap_or(has_battery);
+    s.game_dvr_background =
+        read_dword(Hive::Hkcu, GAME_DVR, "HistoricalCaptureEnabled").map(|v| v == 1);
+    for d in &mut s.disks {
+        if let Some(k) = disk_kind(&d.mount) {
+            d.kind = k;
+        }
     }
 }
 
+fn hkey(h: Hive) -> RegKey {
+    RegKey::predef(match h {
+        Hive::Hkcu => HKEY_CURRENT_USER,
+        Hive::Hklm => HKEY_LOCAL_MACHINE,
+    })
+}
+
+fn read_dword(hive: Hive, key: &str, name: &str) -> Option<u32> {
+    hkey(hive)
+        .open_subkey_with_flags(key, KEY_READ)
+        .ok()?
+        .get_value::<u32, _>(name)
+        .ok()
+}
+
+fn approved_bytes(location: StartupLocation, name: &str) -> Option<Vec<u8>> {
+    let (hive, key) = location.approved_key();
+    hkey(hive)
+        .open_subkey_with_flags(key, KEY_READ)
+        .ok()?
+        .get_raw_value(name)
+        .ok()
+        .map(|v| v.bytes.to_vec())
+}
+
+fn startup_folder(location: StartupLocation) -> Option<PathBuf> {
+    let (var, rest) = match location {
+        StartupLocation::StartupFolderUser => {
+            ("APPDATA", r"Microsoft\Windows\Start Menu\Programs\Startup")
+        }
+        StartupLocation::StartupFolderCommon => (
+            "ProgramData",
+            r"Microsoft\Windows\Start Menu\Programs\StartUp",
+        ),
+        _ => return None,
+    };
+    std::env::var_os(var).map(|b| PathBuf::from(b).join(rest))
+}
+
+fn run_key(location: StartupLocation) -> Option<(Hive, &'static str)> {
+    match location {
+        StartupLocation::HkcuRun => Some((Hive::Hkcu, RUN)),
+        StartupLocation::HklmRun => Some((Hive::Hklm, RUN)),
+        StartupLocation::HklmRun32 => Some((Hive::Hklm, RUN32)),
+        _ => None,
+    }
+}
+
+const LOCATIONS: [StartupLocation; 5] = [
+    StartupLocation::HkcuRun,
+    StartupLocation::HklmRun,
+    StartupLocation::HklmRun32,
+    StartupLocation::StartupFolderUser,
+    StartupLocation::StartupFolderCommon,
+];
+
 fn read_startup() -> Vec<StartupItem> {
     let mut out = vec![];
-    for (hive, loc) in [
-        (HKEY_CURRENT_USER, StartupLocation::HkcuRun),
-        (HKEY_LOCAL_MACHINE, StartupLocation::HklmRun),
-    ] {
-        let root = RegKey::predef(hive);
-        let Ok(run) = root.open_subkey_with_flags(RUN, KEY_READ) else {
-            continue;
-        };
-        let approved = root.open_subkey_with_flags(APPROVED, KEY_READ).ok();
-        for (name, _) in run.enum_values().flatten() {
-            let command: String = run.get_value(&name).unwrap_or_default();
-            let bytes = approved
-                .as_ref()
-                .and_then(|a| a.get_raw_value(&name).ok())
-                .map(|v| v.bytes.to_vec());
+    for loc in LOCATIONS {
+        for (name, command) in entries(loc) {
             out.push(StartupItem {
-                enabled: parse::startup_enabled(bytes.as_deref()),
+                enabled: parse::startup_enabled(approved_bytes(loc, &name).as_deref()),
                 name,
                 command,
                 location: loc,
@@ -53,6 +106,38 @@ fn read_startup() -> Vec<StartupItem> {
         }
     }
     out
+}
+
+/// (name, command) pairs at one startup location. For the Startup folders the name is the file
+/// name, which is also the StartupApproved value name.
+fn entries(loc: StartupLocation) -> Vec<(String, String)> {
+    if let Some((hive, key)) = run_key(loc) {
+        let Ok(run) = hkey(hive).open_subkey_with_flags(key, KEY_READ) else {
+            return vec![];
+        };
+        return run
+            .enum_values()
+            .flatten()
+            .map(|(name, _)| {
+                let command: String = run.get_value(&name).unwrap_or_default();
+                (name, command)
+            })
+            .collect();
+    }
+    let Some(dir) = startup_folder(loc) else {
+        return vec![];
+    };
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return vec![];
+    };
+    rd.flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            (!name.eq_ignore_ascii_case("desktop.ini"))
+                .then(|| (name, e.path().to_string_lossy().to_string()))
+        })
+        .collect()
 }
 
 fn read_appx() -> Vec<String> {
@@ -87,14 +172,39 @@ fn read_gpus() -> Vec<String> {
         .collect()
 }
 
-fn read_power_plan() -> Option<PowerPlan> {
-    let out = std::process::Command::new("powercfg")
-        .arg("/getactivescheme")
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    let (guid, name) = parse::active_scheme(&String::from_utf8_lossy(&out.stdout))?;
-    Some(PowerPlan { guid, name })
+/// Installed plans and the active plan's GUID, from the registry (no powercfg process).
+fn read_power_plans() -> (Vec<PowerPlan>, Option<String>) {
+    let Ok(k) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(POWER_SCHEMES, KEY_READ)
+    else {
+        return (vec![], None);
+    };
+    let active = k
+        .get_value::<String, _>("ActivePowerScheme")
+        .ok()
+        .map(|g| g.to_lowercase());
+    let plans = k
+        .enum_keys()
+        .flatten()
+        .filter(|g| forge_core::power::is_guid(g))
+        .map(|guid| {
+            let name = k
+                .open_subkey(&guid)
+                .ok()
+                .and_then(|p| p.get_value::<String, _>("FriendlyName").ok())
+                .map(|n| parse::power_friendly_name(&n))
+                .unwrap_or_else(|| forge_core::power::name(&guid.to_lowercase()).to_string());
+            PowerPlan {
+                guid: guid.to_lowercase(),
+                name,
+            }
+        })
+        .collect();
+    (plans, active)
+}
+
+/// The active power plan GUID. Used by the helper to record what to restore.
+pub fn read_active_plan() -> Option<String> {
+    read_power_plans().1
 }
 
 fn power_status() -> (bool, bool) {
@@ -123,6 +233,125 @@ fn read_smbios() -> Option<Vec<u8>> {
         buf.truncate(got as usize);
         Some(buf.split_off(8)) // drop RawSMBIOSData header
     }
+}
+
+fn read_displays() -> Vec<Display> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        DEVMODEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICEW, ENUM_CURRENT_SETTINGS,
+        EnumDisplayDevicesW, EnumDisplaySettingsW,
+    };
+    let mut out = vec![];
+    let mut i = 0u32;
+    loop {
+        let mut dd: DISPLAY_DEVICEW = unsafe { std::mem::zeroed() };
+        dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+        if unsafe { EnumDisplayDevicesW(std::ptr::null(), i, &mut dd, 0) } == 0 {
+            break;
+        }
+        i += 1;
+        if dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP == 0 {
+            continue;
+        }
+        let dev = dd.DeviceName.as_ptr();
+        let new_mode = || {
+            let mut m: DEVMODEW = unsafe { std::mem::zeroed() };
+            m.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+            m
+        };
+        let mut cur = new_mode();
+        if unsafe { EnumDisplaySettingsW(dev, ENUM_CURRENT_SETTINGS, &mut cur) } == 0 {
+            continue;
+        }
+        let mut modes = vec![];
+        let mut j = 0u32;
+        loop {
+            let mut m = new_mode();
+            if unsafe { EnumDisplaySettingsW(dev, j, &mut m) } == 0 || j > 4096 {
+                break;
+            }
+            modes.push((m.dmPelsWidth, m.dmPelsHeight, m.dmDisplayFrequency));
+            j += 1;
+        }
+        let (w, h, hz) = (cur.dmPelsWidth, cur.dmPelsHeight, cur.dmDisplayFrequency);
+        out.push(Display {
+            name: format!("Display {}", out.len() + 1),
+            width: w,
+            height: h,
+            current_hz: hz,
+            max_hz: parse::best_refresh(w, h, &modes).unwrap_or(hz).max(hz),
+        });
+    }
+    out
+}
+
+/// NVMe / SSD / HDD for a drive letter, from the storage stack (sysinfo often says Unknown).
+fn disk_kind(mount: &str) -> Option<DiskKind> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        BusTypeNvme, CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    use windows_sys::Win32::System::Ioctl::{
+        DEVICE_SEEK_PENALTY_DESCRIPTOR, IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery,
+        STORAGE_ADAPTER_DESCRIPTOR, STORAGE_PROPERTY_QUERY, StorageAdapterProperty,
+        StorageDeviceSeekPenaltyProperty,
+    };
+    let letter = mount.trim_end_matches(['\\', ':']);
+    if letter.len() != 1 {
+        return None;
+    }
+    let path: Vec<u16> = format!(r"\\.\{letter}:")
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    // Access 0: query metadata only, no admin rights needed.
+    let h = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if h == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    fn query<T>(h: windows_sys::Win32::Foundation::HANDLE, id: i32) -> Option<T> {
+        let mut q: STORAGE_PROPERTY_QUERY = unsafe { std::mem::zeroed() };
+        q.PropertyId = id;
+        q.QueryType = PropertyStandardQuery;
+        let mut out: T = unsafe { std::mem::zeroed() };
+        let mut got = 0u32;
+        let ok = unsafe {
+            DeviceIoControl(
+                h,
+                IOCTL_STORAGE_QUERY_PROPERTY,
+                (&q as *const STORAGE_PROPERTY_QUERY).cast(),
+                std::mem::size_of::<STORAGE_PROPERTY_QUERY>() as u32,
+                (&mut out as *mut T).cast(),
+                std::mem::size_of::<T>() as u32,
+                &mut got,
+                std::ptr::null_mut(),
+            )
+        };
+        (ok != 0 && got > 0).then_some(out)
+    }
+    let adapter: Option<STORAGE_ADAPTER_DESCRIPTOR> = query(h, StorageAdapterProperty);
+    let seek: Option<DEVICE_SEEK_PENALTY_DESCRIPTOR> = query(h, StorageDeviceSeekPenaltyProperty);
+    unsafe { CloseHandle(h) };
+    if adapter.is_some_and(|a| a.BusType as i32 == BusTypeNvme) {
+        return Some(DiskKind::Nvme);
+    }
+    seek.map(|s| {
+        if s.IncursSeekPenalty {
+            DiskKind::Hdd
+        } else {
+            DiskKind::Ssd
+        }
+    })
 }
 
 /// While alive, the current thread runs at background CPU, I/O and memory priority.
