@@ -3,36 +3,10 @@
     {
       "advice": null,
       "category": "startup",
-      "confidence": "high",
+      "confidence": "low",
       "evidence": [
-        "C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe"
-      ],
-      "fix": {
-        "reversible": true,
-        "steps": [
-          {
-            "location": "hklm_run",
-            "name": "AdobeGCInvoker-1.0",
-            "op": "disable_startup_item"
-          }
-        ]
-      },
-      "id": "startup:AdobeGCInvoker-1.0",
-      "impact": {
-        "boot_ms": 600,
-        "idle_cpu_pct": 0.20000000298023224,
-        "idle_ram_mb": 80
-      },
-      "risk": "safe",
-      "title": "AdobeGCInvoker-1.0 starts with Windows",
-      "why": "Background updater. It can run on demand instead."
-    },
-    {
-      "advice": null,
-      "category": "startup",
-      "confidence": "medium",
-      "evidence": [
-        "C:\\Users\\u\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe"
+        "C:\\Users\\u\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe",
+        "Registry, this user (Run)"
       ],
       "fix": {
         "reversible": true,
@@ -50,16 +24,19 @@
         "idle_cpu_pct": 0.20000000298023224,
         "idle_ram_mb": 80
       },
+      "priority": 0.0,
       "risk": "caution",
+      "score": 0.4480000138282776,
       "title": "Discord starts with Windows",
       "why": "Your choice. Often the heaviest chat app at startup."
     },
     {
       "advice": null,
       "category": "startup",
-      "confidence": "medium",
+      "confidence": "low",
       "evidence": [
-        "C:\\Users\\u\\AppData\\Roaming\\Spotify\\Spotify.exe /background"
+        "C:\\Users\\u\\AppData\\Roaming\\Spotify\\Spotify.exe /background",
+        "Registry, this user (Run)"
       ],
       "fix": {
         "reversible": true,
@@ -77,66 +54,86 @@
         "idle_cpu_pct": 0.20000000298023224,
         "idle_ram_mb": 80
       },
+      "priority": 0.0,
       "risk": "caution",
+      "score": 0.4480000138282776,
       "title": "Spotify starts with Windows",
       "why": "Your choice. Launching at sign-in costs RAM and a little boot time."
     },
     {
-      "advice": "Frees disk space only. Reinstall later from the Microsoft Store if needed.",
+      "advice": null,
+      "category": "startup",
+      "confidence": "medium",
+      "evidence": [
+        "C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe",
+        "Registry, all users, 32-bit (Run)"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "location": "hklm_run32",
+            "name": "AdobeGCInvoker-1.0",
+            "op": "disable_startup_item"
+          }
+        ]
+      },
+      "id": "startup:AdobeGCInvoker-1.0",
+      "impact": {
+        "boot_ms": 600,
+        "idle_cpu_pct": 0.20000000298023224,
+        "idle_ram_mb": 80
+      },
+      "priority": 0.0,
+      "risk": "safe",
+      "score": 0.9799999594688416,
+      "title": "AdobeGCInvoker-1.0 starts with Windows",
+      "why": "Background updater. It can run on demand instead."
+    },
+    {
+      "advice": "If you don't use it, uninstall it from Settings > Apps > Installed apps. It mostly frees disk space. You can reinstall it from the Microsoft Store.",
       "category": "bloat",
       "confidence": "high",
       "evidence": [
         "Packaged app: king.com.CandyCrushSaga"
       ],
-      "fix": {
-        "reversible": false,
-        "steps": [
-          {
-            "op": "remove_appx",
-            "package_name": "king.com.CandyCrushSaga"
-          }
-        ]
-      },
+      "fix": null,
       "id": "appx:king.com.CandyCrushSaga",
       "impact": {
         "boot_ms": 0,
         "idle_cpu_pct": 0.0,
         "idle_ram_mb": 0
       },
-      "risk": "caution",
-      "title": "king.com.CandyCrushSaga is preinstalled",
+      "priority": 0.10000000149011612,
+      "risk": "safe",
+      "score": 0.10000000149011612,
+      "title": "Candy Crush Saga is preinstalled",
       "why": "Preinstalled promotional game. Not used by Windows."
     },
     {
-      "advice": "Frees disk space only. Reinstall later from the Microsoft Store if needed.",
+      "advice": "If you don't use it, uninstall it from Settings > Apps > Installed apps. It mostly frees disk space. You can reinstall it from the Microsoft Store.",
       "category": "bloat",
       "confidence": "high",
       "evidence": [
         "Packaged app: Microsoft.BingNews"
       ],
-      "fix": {
-        "reversible": false,
-        "steps": [
-          {
-            "op": "remove_appx",
-            "package_name": "Microsoft.BingNews"
-          }
-        ]
-      },
+      "fix": null,
       "id": "appx:Microsoft.BingNews",
       "impact": {
         "boot_ms": 0,
         "idle_cpu_pct": 0.0,
         "idle_ram_mb": 0
       },
-      "risk": "caution",
-      "title": "Microsoft.BingNews is preinstalled",
+      "priority": 0.10000000149011612,
+      "risk": "safe",
+      "score": 0.10000000149011612,
+      "title": "Bing News is preinstalled",
       "why": "News feed app. No system component depends on it."
     },
     {
-      "advice": "Gain varies by CPU. The Prove step will measure it on this machine.",
+      "advice": "Gain varies by CPU. Undo it from History if you see no difference.",
       "category": "power",
-      "confidence": "medium",
+      "confidence": "low",
       "evidence": [
         "Active plan: Balanced (381b4222-f694-41f0-9685-ff5bb260df2e)"
       ],
@@ -155,16 +152,18 @@
         "idle_cpu_pct": 0.0,
         "idle_ram_mb": 0
       },
+      "priority": 0.6000000238418579,
       "risk": "safe",
+      "score": 0.24000000953674316,
       "title": "Windows is on the Balanced power plan",
-      "why": "Balanced lets the CPU clock down between bursts, which can add latency in games. High performance keeps it responsive at the cost of idle power."
+      "why": "Balanced lets the CPU drop to low clocks between bursts of work. High performance keeps it ready at the cost of more power use when idle. The effect on games is often small and varies by CPU."
     },
     {
-      "advice": "Restart into the BIOS and enable XMP or EXPO. Forge will not change firmware settings for you.",
+      "advice": "Restart into the BIOS and enable XMP or EXPO. If the PC becomes unstable, turn it off again. Forge will not change firmware settings for you.",
       "category": "memory",
       "confidence": "medium",
       "evidence": [
-        "Running at 4800 MHz, rated 6000 MHz"
+        "Running at 4800 MT/s, rated 6000 MT/s"
       ],
       "fix": null,
       "id": "ram:xmp",
@@ -173,16 +172,18 @@
         "idle_cpu_pct": 0.0,
         "idle_ram_mb": 0
       },
+      "priority": 1.2000000476837158,
       "risk": "expert",
+      "score": 0.42000001668930054,
       "title": "Memory runs slower than its rated speed",
       "why": "Your RAM is rated faster than it is running. The usual cause is XMP or EXPO being off in the BIOS."
     },
     {
-      "advice": "Review the largest folders and move games or media to another drive.",
+      "advice": "Review the largest folders in Settings > System > Storage, and move games or media to another drive.",
       "category": "storage",
       "confidence": "high",
       "evidence": [
-        "90 GB free of 1000 GB (9%)"
+        "84 GB free of 931 GB (9%)"
       ],
       "fix": null,
       "id": "storage:low:C:",
@@ -191,9 +192,62 @@
         "idle_cpu_pct": 0.0,
         "idle_ram_mb": 0
       },
+      "priority": 1.0,
       "risk": "safe",
+      "score": 1.0,
       "title": "C: is almost full",
       "why": "SSDs slow down and Windows struggles to update when the system drive is nearly full."
+    },
+    {
+      "advice": "Open Settings > System > Display > Advanced display and choose 165 Hz. Also check that the cable and port support it (DisplayPort, or HDMI 2.0 or newer).",
+      "category": "gaming",
+      "confidence": "high",
+      "evidence": [
+        "2560 × 1440 at 60 Hz; highest offered at this resolution: 165 Hz"
+      ],
+      "fix": null,
+      "id": "display:refresh:Display 1",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 1.5,
+      "risk": "safe",
+      "score": 1.5,
+      "title": "Display 1 runs at 60 Hz but supports 165 Hz",
+      "why": "Windows often leaves a new monitor at 60 Hz. Games can look and feel much smoother at the higher rate, and nothing else changes."
+    },
+    {
+      "advice": "Screenshots and manual recording (Win + Alt + R) keep working.",
+      "category": "gaming",
+      "confidence": "medium",
+      "evidence": [
+        "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR\\HistoricalCaptureEnabled = 1"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "hive": "hkcu",
+            "key": "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
+            "name": "HistoricalCaptureEnabled",
+            "op": "set_registry_dword",
+            "value": 0
+          }
+        ]
+      },
+      "id": "gaming:dvr",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.800000011920929,
+      "risk": "safe",
+      "score": 0.5600000023841858,
+      "title": "Game Bar records gameplay in the background",
+      "why": "\"Record what happened\" keeps encoding the last minutes of every game so you can save a clip. That costs some GPU and disk work while you play."
     }
   ],
   "machine": {
@@ -210,28 +264,53 @@
     "cpu_threads": 16,
     "disks": [
       {
-        "free_gb": 90,
+        "free_gb": 84,
         "is_system": true,
         "kind": "nvme",
         "mount": "C:",
-        "total_gb": 1000
+        "total_gb": 931
       },
       {
-        "free_gb": 900,
+        "free_gb": 838,
         "is_system": false,
         "kind": "hdd",
         "mount": "D:",
-        "total_gb": 2000
+        "total_gb": 1863
       }
     ],
+    "displays": [
+      {
+        "current_hz": 60,
+        "height": 1440,
+        "max_hz": 165,
+        "name": "Display 1",
+        "width": 2560
+      }
+    ],
+    "game_dvr_background": true,
     "gpus": [
       "NVIDIA GeForce RTX 4070"
     ],
     "is_laptop": false,
     "on_battery": false,
     "os": "Windows 11 25H2",
-    "ram_configured_mhz": 4800,
-    "ram_rated_mhz": 6000,
+    "power_plans": [
+      {
+        "guid": "381b4222-f694-41f0-9685-ff5bb260df2e",
+        "name": "Balanced"
+      },
+      {
+        "guid": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+        "name": "High performance"
+      },
+      {
+        "guid": "a1841308-3541-4fab-bc81-f71556f20b4a",
+        "name": "Power saver"
+      }
+    ],
+    "ram_configured_mts": 4800,
+    "ram_modules": 2,
+    "ram_rated_mts": 6000,
     "ram_total_mb": 32768,
     "ram_used_mb": 9800,
     "startup": [
@@ -250,7 +329,7 @@
       {
         "command": "C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe",
         "enabled": true,
-        "location": "hklm_run",
+        "location": "hklm_run32",
         "name": "AdobeGCInvoker-1.0"
       },
       {
@@ -266,5 +345,17 @@
         "name": "RtkAudUService"
       }
     ]
-  }
+  },
+  "order": [
+    "display:refresh:Display 1",
+    "storage:low:C:",
+    "startup:AdobeGCInvoker-1.0",
+    "gaming:dvr",
+    "startup:Discord",
+    "startup:Spotify",
+    "ram:xmp",
+    "power:plan",
+    "appx:king.com.CandyCrushSaga",
+    "appx:Microsoft.BingNews"
+  ]
 }
