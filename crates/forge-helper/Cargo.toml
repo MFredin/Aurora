@@ -1,0 +1,12 @@
+[package]
+name = "forge-helper"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+forge-core = { version = "0.1.0", path = "../forge-core" }
+forge-scan = { version = "0.1.0", path = "../forge-scan" }
+serde_json = "1.0.154"
+
+[target."cfg(windows)".dependencies]
+winreg = "0.56.0"

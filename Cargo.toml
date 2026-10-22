@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/forge-core", "crates/forge-scan", "crates/forge-helper"]
+# src-tauri is built separately (needs WebView2 / platform libs); keep it out of the default workspace.
+exclude = ["src-tauri"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[profile.release]
+opt-level = "s"      # small + fast enough; scanning is I/O bound
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,270 @@
+{
+  "findings": [
+    {
+      "advice": null,
+      "category": "startup",
+      "confidence": "high",
+      "evidence": [
+        "C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "location": "hklm_run",
+            "name": "AdobeGCInvoker-1.0",
+            "op": "disable_startup_item"
+          }
+        ]
+      },
+      "id": "startup:AdobeGCInvoker-1.0",
+      "impact": {
+        "boot_ms": 600,
+        "idle_cpu_pct": 0.20000000298023224,
+        "idle_ram_mb": 80
+      },
+      "risk": "safe",
+      "title": "AdobeGCInvoker-1.0 starts with Windows",
+      "why": "Background updater. It can run on demand instead."
+    },
+    {
+      "advice": null,
+      "category": "startup",
+      "confidence": "medium",
+      "evidence": [
+        "C:\\Users\\u\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "location": "hkcu_run",
+            "name": "Discord",
+            "op": "disable_startup_item"
+          }
+        ]
+      },
+      "id": "startup:Discord",
+      "impact": {
+        "boot_ms": 600,
+        "idle_cpu_pct": 0.20000000298023224,
+        "idle_ram_mb": 80
+      },
+      "risk": "caution",
+      "title": "Discord starts with Windows",
+      "why": "Your choice. Often the heaviest chat app at startup."
+    },
+    {
+      "advice": null,
+      "category": "startup",
+      "confidence": "medium",
+      "evidence": [
+        "C:\\Users\\u\\AppData\\Roaming\\Spotify\\Spotify.exe /background"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "location": "hkcu_run",
+            "name": "Spotify",
+            "op": "disable_startup_item"
+          }
+        ]
+      },
+      "id": "startup:Spotify",
+      "impact": {
+        "boot_ms": 600,
+        "idle_cpu_pct": 0.20000000298023224,
+        "idle_ram_mb": 80
+      },
+      "risk": "caution",
+      "title": "Spotify starts with Windows",
+      "why": "Your choice. Launching at sign-in costs RAM and a little boot time."
+    },
+    {
+      "advice": "Frees disk space only. Reinstall later from the Microsoft Store if needed.",
+      "category": "bloat",
+      "confidence": "high",
+      "evidence": [
+        "Packaged app: king.com.CandyCrushSaga"
+      ],
+      "fix": {
+        "reversible": false,
+        "steps": [
+          {
+            "op": "remove_appx",
+            "package_name": "king.com.CandyCrushSaga"
+          }
+        ]
+      },
+      "id": "appx:king.com.CandyCrushSaga",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "risk": "caution",
+      "title": "king.com.CandyCrushSaga is preinstalled",
+      "why": "Preinstalled promotional game. Not used by Windows."
+    },
+    {
+      "advice": "Frees disk space only. Reinstall later from the Microsoft Store if needed.",
+      "category": "bloat",
+      "confidence": "high",
+      "evidence": [
+        "Packaged app: Microsoft.BingNews"
+      ],
+      "fix": {
+        "reversible": false,
+        "steps": [
+          {
+            "op": "remove_appx",
+            "package_name": "Microsoft.BingNews"
+          }
+        ]
+      },
+      "id": "appx:Microsoft.BingNews",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "risk": "caution",
+      "title": "Microsoft.BingNews is preinstalled",
+      "why": "News feed app. No system component depends on it."
+    },
+    {
+      "advice": "Gain varies by CPU. The Prove step will measure it on this machine.",
+      "category": "power",
+      "confidence": "medium",
+      "evidence": [
+        "Active plan: Balanced (381b4222-f694-41f0-9685-ff5bb260df2e)"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "guid": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+            "op": "set_power_plan"
+          }
+        ]
+      },
+      "id": "power:plan",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "risk": "safe",
+      "title": "Windows is on the Balanced power plan",
+      "why": "Balanced lets the CPU clock down between bursts, which can add latency in games. High performance keeps it responsive at the cost of idle power."
+    },
+    {
+      "advice": "Restart into the BIOS and enable XMP or EXPO. Forge will not change firmware settings for you.",
+      "category": "memory",
+      "confidence": "medium",
+      "evidence": [
+        "Running at 4800 MHz, rated 6000 MHz"
+      ],
+      "fix": null,
+      "id": "ram:xmp",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "risk": "expert",
+      "title": "Memory runs slower than its rated speed",
+      "why": "Your RAM is rated faster than it is running. The usual cause is XMP or EXPO being off in the BIOS."
+    },
+    {
+      "advice": "Review the largest folders and move games or media to another drive.",
+      "category": "storage",
+      "confidence": "high",
+      "evidence": [
+        "90 GB free of 1000 GB (9%)"
+      ],
+      "fix": null,
+      "id": "storage:low:C:",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "risk": "safe",
+      "title": "C: is almost full",
+      "why": "SSDs slow down and Windows struggles to update when the system drive is nearly full."
+    }
+  ],
+  "machine": {
+    "active_power_plan": {
+      "guid": "381b4222-f694-41f0-9685-ff5bb260df2e",
+      "name": "Balanced"
+    },
+    "appx": [
+      "king.com.CandyCrushSaga",
+      "Microsoft.BingNews",
+      "Microsoft.XboxIdentityProvider"
+    ],
+    "cpu_name": "AMD Ryzen 7 7800X3D",
+    "cpu_threads": 16,
+    "disks": [
+      {
+        "free_gb": 90,
+        "is_system": true,
+        "kind": "nvme",
+        "mount": "C:",
+        "total_gb": 1000
+      },
+      {
+        "free_gb": 900,
+        "is_system": false,
+        "kind": "hdd",
+        "mount": "D:",
+        "total_gb": 2000
+      }
+    ],
+    "gpus": [
+      "NVIDIA GeForce RTX 4070"
+    ],
+    "is_laptop": false,
+    "on_battery": false,
+    "os": "Windows 11 25H2",
+    "ram_configured_mhz": 4800,
+    "ram_rated_mhz": 6000,
+    "ram_total_mb": 32768,
+    "ram_used_mb": 9800,
+    "startup": [
+      {
+        "command": "C:\\Users\\u\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe",
+        "enabled": true,
+        "location": "hkcu_run",
+        "name": "Discord"
+      },
+      {
+        "command": "C:\\Users\\u\\AppData\\Roaming\\Spotify\\Spotify.exe /background",
+        "enabled": true,
+        "location": "hkcu_run",
+        "name": "Spotify"
+      },
+      {
+        "command": "C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe",
+        "enabled": true,
+        "location": "hklm_run",
+        "name": "AdobeGCInvoker-1.0"
+      },
+      {
+        "command": "%windir%\\system32\\SecurityHealthSystray.exe",
+        "enabled": true,
+        "location": "hklm_run",
+        "name": "SecurityHealth"
+      },
+      {
+        "command": "C:\\Windows\\System32\\DriverStore\\RtkAudUService64.exe",
+        "enabled": true,
+        "location": "hklm_run",
+        "name": "RtkAudUService"
+      }
+    ]
+  }
+}

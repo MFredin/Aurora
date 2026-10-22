@@ -1,0 +1,14 @@
+[package]
+name = "forge-scan"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+forge-core = { version = "0.1.0", path = "../forge-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sysinfo = "0.39.6"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_Power", "Win32_System_SystemInformation", "Win32_Foundation"] }
+winreg = "0.56.0"
