@@ -9,7 +9,7 @@
   },
   "app": {
     "windows": [
-      { "title": "Forge", "width": 1120, "height": 720, "minWidth": 820, "minHeight": 560, "decorations": true, "backgroundColor": "#0A1A21" }
+      { "title": "Forge", "width": 1320, "height": 860, "minWidth": 900, "minHeight": 640, "decorations": true, "visible": false, "center": true, "backgroundColor": "#0A0B10" }
     ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"

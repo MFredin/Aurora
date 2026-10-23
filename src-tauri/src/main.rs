@@ -10,7 +10,7 @@ use forge_core::{
     engine,
     ipc::{Request, Response},
     journal,
-    model::Finding,
+    model::{Finding, FixStep},
     paths, rules,
     snapshot::Snapshot,
 };
@@ -29,7 +29,7 @@ const HELPER_STALE: Duration = Duration::from_secs(290);
 #[derive(Serialize, Clone)]
 #[serde(tag = "event", content = "data", rename_all = "snake_case")]
 enum ScanEvent {
-    Machine(Snapshot),
+    Machine(Box<Snapshot>),
     Finding(Finding),
     /// Finding ids, best first.
     Done {
@@ -42,6 +42,8 @@ type Slot = Option<(HelperConn, Instant)>;
 #[derive(Default)]
 struct AppState {
     findings: Arc<Mutex<HashMap<String, Finding>>>,
+    /// The last scan, so startup switches act only on items the scan found.
+    snapshot: Arc<Mutex<Option<Snapshot>>>,
     helper: Arc<Mutex<Slot>>,
     restore_point_asked: Arc<AtomicBool>,
     meter: Mutex<SelfMeter>,
@@ -95,9 +97,11 @@ async fn scan(state: State<'_, AppState>, on_event: Channel<ScanEvent>) -> Resul
     let found = tauri::async_runtime::spawn_blocking(move || {
         let _bg = BackgroundGuard::enter(); // low CPU/IO priority so a scan never disturbs a running game
         let started = Instant::now();
-        let snap = forge_scan::collect();
-        let _ = on_event.send(ScanEvent::Machine(snap.clone()));
-        let all = engine::scan(&snap, &BloatDb::embedded(), &rules::default_rules(), |f| {
+        let db = BloatDb::embedded();
+        let mut snap = forge_scan::collect();
+        rules::annotate(&mut snap, &db);
+        let _ = on_event.send(ScanEvent::Machine(Box::new(snap.clone())));
+        let all = engine::scan(&snap, &db, &rules::default_rules(), |f| {
             let _ = on_event.send(ScanEvent::Finding(f.clone()));
         });
         let _ = on_event.send(ScanEvent::Done {
@@ -106,11 +110,13 @@ async fn scan(state: State<'_, AppState>, on_event: Channel<ScanEvent>) -> Resul
         if cfg!(debug_assertions) {
             eprintln!("scan took {:?}", started.elapsed());
         }
-        all
+        (all, snap)
     })
     .await
     .map_err(|_| "The scan stopped unexpectedly. Nothing was changed. Try again.".to_string())?;
+    let (found, snap) = found;
     *lock(&state.findings) = found.into_iter().map(|f| (f.id.clone(), f)).collect();
+    *lock(&state.snapshot) = Some(snap);
     Ok(())
 }
 
@@ -131,8 +137,22 @@ async fn apply_fix(state: State<'_, AppState>, finding_id: String) -> Result<App
         .fix
         .clone()
         .ok_or("That finding has no automatic fix. Follow the advice shown instead.")?;
+    run_steps(&state, finding.id, finding.title, plan.steps).await
+}
+
+/// Sends a fix's steps to the helper as one group, asking for a restore point before the first
+/// change of the session.
+async fn run_steps(
+    state: &State<'_, AppState>,
+    finding_id: String,
+    title: String,
+    steps: Vec<FixStep>,
+) -> Result<ApplyResult, String> {
     let helper = state.helper.clone();
     let asked = state.restore_point_asked.clone();
+    let group = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
     tauri::async_runtime::spawn_blocking(move || {
         let mut slot = lock(&helper);
         let mut out = ApplyResult::default();
@@ -150,13 +170,14 @@ async fn apply_fix(state: State<'_, AppState>, finding_id: String) -> Result<App
                 }
             }
         }
-        for step in plan.steps {
+        for step in steps {
             let req = Request::Apply {
-                finding_id: finding.id.clone(),
-                title: finding.title.clone(),
+                finding_id: finding_id.clone(),
+                title: title.clone(),
                 step,
+                group: Some(group),
             };
-            match call(&mut slot, &req, Duration::from_secs(30))? {
+            match call(&mut slot, &req, Duration::from_secs(120))? {
                 Response::Applied { .. } => {}
                 Response::AppliedWithWarning { warning, .. } => out.warning = Some(warning),
                 Response::Rejected { reason } => {
@@ -176,20 +197,105 @@ async fn apply_fix(state: State<'_, AppState>, finding_id: String) -> Result<App
     .map_err(|_| "Applying stopped unexpectedly. Open History to check.".to_string())?
 }
 
+/// Turns one startup item from the last scan on or off. The UI names the item by its position in
+/// that scan; the step is built here from what the scan found.
 #[tauri::command]
-async fn undo(state: State<'_, AppState>, journal_id: u64) -> Result<(), String> {
+async fn set_startup(
+    state: State<'_, AppState>,
+    index: usize,
+    enabled: bool,
+) -> Result<ApplyResult, String> {
+    let item = lock(&state.snapshot)
+        .as_ref()
+        .and_then(|s| s.startup.get(index).cloned())
+        .ok_or("Scan again, then change startup apps.")?;
+    if item.protected && !enabled {
+        return Err(format!(
+            "{} is a Windows or driver component, so Forge leaves it on.",
+            item.name
+        ));
+    }
+    let step = if enabled {
+        // The value Task Manager writes for "Enabled".
+        FixStep::RestoreStartupItem {
+            name: item.name.clone(),
+            location: item.location,
+            prior: Some(vec![2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        }
+    } else {
+        FixStep::DisableStartupItem {
+            name: item.name.clone(),
+            location: item.location,
+        }
+    };
+    let title = format!("{} at startup", item.name);
+    let out = run_steps(
+        &state,
+        format!("startup-app:{}", item.name),
+        title,
+        vec![step],
+    )
+    .await?;
+    if let Some(s) = lock(&state.snapshot).as_mut() {
+        if let Some(i) = s.startup.get_mut(index) {
+            i.enabled = enabled;
+        }
+    }
+    Ok(out)
+}
+
+/// Deletes temp files older than a day from the user's own temp folder. Runs in this
+/// (unelevated) process on purpose: see `forge_scan::cleanup`.
+#[tauri::command]
+async fn clean_temp() -> Result<forge_scan::cleanup::Tally, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let _bg = BackgroundGuard::enter();
+        forge_scan::cleanup::clean(
+            &forge_scan::cleanup::temp_dir(),
+            forge_scan::cleanup::MIN_AGE,
+        )
+    })
+    .await
+    .map_err(|_| "Cleanup stopped unexpectedly.".to_string())
+}
+
+#[tauri::command]
+async fn empty_recycle_bin() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(forge_scan::empty_recycle_bin)
+            .await
+            .map_err(|_| "Emptying the Recycle Bin stopped unexpectedly.".to_string())?
+    }
+    #[cfg(not(windows))]
+    Err("The Recycle Bin is only on Windows.".into())
+}
+
+/// Undoes one change, given the journal ids of all its steps. Newest step first, so a fix with
+/// several steps unwinds in reverse order.
+#[tauri::command]
+async fn undo(state: State<'_, AppState>, journal_ids: Vec<u64>) -> Result<(), String> {
     let helper = state.helper.clone();
+    let mut ids = journal_ids;
+    ids.sort_unstable_by(|a, b| b.cmp(a));
+    ids.dedup();
+    if ids.is_empty() || ids.len() > 32 {
+        return Err("Nothing to undo.".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let mut slot = lock(&helper);
-        match call(
-            &mut slot,
-            &Request::Undo { journal_id },
-            Duration::from_secs(30),
-        )? {
-            Response::Undone { .. } => Ok(()),
-            Response::Rejected { reason } | Response::Failed { reason } => Err(reason),
-            _ => Err("Forge's helper gave an unexpected answer.".into()),
+        for journal_id in ids {
+            match call(
+                &mut slot,
+                &Request::Undo { journal_id },
+                Duration::from_secs(30),
+            )? {
+                Response::Undone { .. } => {}
+                Response::Rejected { reason } | Response::Failed { reason } => return Err(reason),
+                _ => return Err("Forge's helper gave an unexpected answer.".into()),
+            }
         }
+        Ok(())
     })
     .await
     .map_err(|_| "Undo stopped unexpectedly. Open History to check.".to_string())?
@@ -225,6 +331,20 @@ fn set_webview_visible(window: &tauri::Window, visible: bool) {
     let _ = (window, visible);
 }
 
+/// Opens at a size where Overview fits without scrolling (1320 x 860), shrunk to 92% of the
+/// screen's work area on smaller displays, and centred.
+fn fit_to_screen(w: &tauri::WebviewWindow) {
+    let Ok(Some(monitor)) = w.current_monitor() else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area().size.to_logical::<f64>(scale);
+    let width = 1320f64.min(area.width * 0.92).max(1024f64.min(area.width));
+    let height = 860f64.min(area.height * 0.92).max(680f64.min(area.height));
+    let _ = w.set_size(tauri::LogicalSize::new(width, height));
+    let _ = w.center();
+}
+
 /// Set at the top of `main`, for the cold-start measurement.
 static STARTED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
@@ -242,6 +362,14 @@ fn main() {
     STARTED.get_or_init(Instant::now);
     tauri::Builder::default()
         .manage(AppState::default())
+        .setup(|app| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                fit_to_screen(&w);
+                let _ = w.show();
+            }
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Resized(_) = event {
                 let minimized = window.is_minimized().unwrap_or(false);
@@ -249,7 +377,15 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            scan, apply_fix, undo, history, self_stats, ui_ready
+            scan,
+            apply_fix,
+            set_startup,
+            clean_temp,
+            empty_recycle_bin,
+            undo,
+            history,
+            self_stats,
+            ui_ready
         ])
         .run(tauri::generate_context!())
         .expect("error while running Forge");
