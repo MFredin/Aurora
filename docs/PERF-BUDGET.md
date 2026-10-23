@@ -17,6 +17,23 @@ every "current" cell below is unmeasured.
 
 ## How to measure (Windows)
 
+**Use `scripts/measure.ps1`.** It launches the app, waits 30 s, then records cold start (from
+process start to the UI's first frame), private working set summed over the whole process tree, and
+CPU, focused and again minimized:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\measure.ps1 -Exe "C:\Program Files\Forge\Forge.exe"
+```
+
+`-BrowserArgs` tries WebView2 variants without rebuilding (sets `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`).
+CI runs it on every push to `main` (job **Measure**) for: current WebView2, a leaner WebView2
+(one renderer, no background networking or extra UI features), WebView2 without GPU, and
+`tools/native-probe`, an egui window of similar complexity, as the native baseline. Results are in
+the run's summary page and the `forge-measurements` artifact. The runner has no GPU, so also run the
+script on a real laptop and desktop before deciding.
+
+Manual method (for reference):
+
 1. **Memory:** Task Manager > Details, add *Memory (private working set)*. Sum `forge-app.exe` and every `msedgewebview2.exe` that belongs to it. Record the sum, after 60 s idle.
 2. **CPU:** Performance Monitor or `typeperf "\Process(forge-app)\% Processor Time" -si 5 -sc 12`, plus the same for each `msedgewebview2` process. Do it with the window focused and again minimized.
 3. **Scan duration:** log `Instant::now()` around `collect()` + `engine::scan` and print it in dev builds.

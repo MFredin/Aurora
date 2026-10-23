@@ -1,0 +1,20 @@
+# Measurement probe only: a native (egui) window with roughly the complexity of the Pulse design,
+# so its idle memory and CPU can be compared with the WebView2 app (docs/PERF-BUDGET.md).
+# Not part of the product and not in the workspace.
+[package]
+name = "forge-native-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace]

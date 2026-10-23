@@ -208,11 +208,25 @@ fn self_stats(state: State<'_, AppState>) -> SelfStats {
     lock(&state.meter).sample()
 }
 
+/// Set at the top of `main`, for the cold-start measurement.
+static STARTED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// Called once by the UI after its first frame. Only when the measurement script launched the app
+/// with `FORGE_PERF_LOG=<file>` does this write the milliseconds since process start to that file.
+#[tauri::command]
+fn ui_ready() {
+    let (Some(path), Some(start)) = (std::env::var_os("FORGE_PERF_LOG"), STARTED.get()) else {
+        return;
+    };
+    let _ = std::fs::write(path, start.elapsed().as_millis().to_string());
+}
+
 fn main() {
+    STARTED.get_or_init(Instant::now);
     tauri::Builder::default()
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
-            scan, apply_fix, undo, history, self_stats
+            scan, apply_fix, undo, history, self_stats, ui_ready
         ])
         .run(tauri::generate_context!())
         .expect("error while running Forge");

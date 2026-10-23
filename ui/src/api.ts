@@ -59,4 +59,9 @@ export async function selfStats(): Promise<SelfStats> {
   return { rss_mb: 96 + Math.random() * 4, cpu_pct: Math.random() * 0.3, processes: 5 };
 }
 
+/** Tells the shell the first frame is on screen (cold-start measurement; no-op unless measuring). */
+export function uiReady(): void {
+  if (inTauri) invoke("ui_ready").catch(() => {});
+}
+
 const mockHistory: HistoryItem[] = [];
