@@ -1,5 +1,5 @@
 // Mirrors forge-core (serde, snake_case). Keep in sync with the Rust side.
-export type Category = "startup" | "bloat" | "power" | "memory" | "storage" | "drivers" | "thermal" | "gaming";
+export type Category = "startup" | "bloat" | "power" | "memory" | "storage" | "drivers" | "thermal" | "gaming" | "system";
 export type Risk = "safe" | "caution" | "expert";
 export type Confidence = "low" | "medium" | "high";
 
@@ -11,6 +11,7 @@ export type FixStep =
   | { op: "disable_startup_item"; name: string; location: StartupLocation }
   | { op: "restore_startup_item"; name: string; location: StartupLocation; prior: number[] | null }
   | { op: "set_power_plan"; guid: string }
+  | { op: "set_power_mode"; guid: string }
   | { op: "set_registry_dword"; hive: string; key: string; name: string; value: number }
   | { op: "set_registry_string"; hive: string; key: string; name: string; value: string }
   | { op: "delete_registry_value"; hive: string; key: string; name: string }
@@ -35,6 +36,17 @@ export interface PowerPlan { guid: string; name: string }
 
 export interface Display { name: string; width: number; height: number; current_hz: number; max_hz: number }
 
+export interface StartupItem {
+  name: string;
+  command: string;
+  location: StartupLocation;
+  enabled: boolean;
+  protected: boolean;
+  note: string | null;
+}
+
+export interface ProcessUse { name: string; memory_mb: number }
+
 export interface Machine {
   os: string;
   is_laptop: boolean;
@@ -47,7 +59,15 @@ export interface Machine {
   displays: Display[];
   gpus: string[];
   power_plans: PowerPlan[];
+  ram_used_mb: number;
+  startup: StartupItem[];
+  temp_bytes: number | null;
+  recycle_bin_bytes: number | null;
+  top_memory: ProcessUse[];
+  uptime_hours: number;
 }
+
+export interface Tally { files: number; bytes: number }
 
 export type ScanEvent =
   | { event: "machine"; data: Machine }
@@ -68,4 +88,5 @@ export interface HistoryItem {
   step: FixStep;
   status: HistoryStatus;
   undoable: boolean;
+  group: number | null;
 }

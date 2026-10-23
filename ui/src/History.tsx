@@ -1,43 +1,46 @@
-import { STATUS_LABEL, describeStep, when } from "./format";
+import { type Change, STATUS_LABEL, changeTitle, describeStep, when } from "./format";
 import { Check, Clock } from "./Icons";
-import type { HistoryItem, Machine } from "./types";
+import type { Machine } from "./types";
 
 interface Props {
-  items: HistoryItem[];
+  changes: Change[];
   error: string | null;
   undoing: Record<number, string>;
   machine: Machine | null;
-  onUndo: (item: HistoryItem) => void;
+  onUndo: (c: Change) => void;
 }
 
-/** Every change Forge made, newest first, read from the helper's journal. */
-export default function History({ items, error, undoing, machine, onUndo }: Props) {
+/** Every change Forge made, newest first, read from the helper's journal. Steps applied together
+ *  (one fix) are one change here, and undo together. */
+export default function History({ changes, error, undoing, machine, onUndo }: Props) {
   return (
     <main className="content">
       <section className="card">
         <h2>Every change Forge made</h2>
         <p className="tiny muted">Newest first. Undo puts back exactly what was there before.</p>
         {error && <p className="bad" role="alert">{error}</p>}
-        {items.length === 0 && !error ? (
+        {changes.length === 0 && !error ? (
           <p className="empty-state"><Clock /> No changes yet. Forge hasn't changed anything on this PC.</p>
         ) : (
           <ul className="rows flush">
-            {items.map((h) => {
-              const state = undoing[h.id];
+            {changes.map((c) => {
+              const state = undoing[c.key];
+              const steps = c.items.length > 1 ? ` · ${c.items.length} settings` : "";
+              const isRemoval = c.first.step.op === "remove_appx";
               return (
-                <li key={h.id} className="row quiet">
-                  <span className={`row-icon ${h.status === "applied" ? "done" : "muted-icon"}`}><Check /></span>
+                <li key={c.key} className="row quiet">
+                  <span className={`row-icon ${c.status === "applied" ? "done" : "muted-icon"}`}><Check /></span>
                   <span className="row-main static">
-                    <span className="row-title">{h.title}</span>
-                    <span className="row-sub">
-                      {when(h.unix_ts)} · {describeStep(h.step, machine)}
-                      {!h.undoable && h.status === "applied" && h.step.op === "remove_appx" && " · Reinstall from the Microsoft Store if needed"}
+                    <span className="row-title">{changeTitle(c, machine)}</span>
+                    <span className="row-sub" title={c.items.map((h) => describeStep(h.step, machine)).join("\n")}>
+                      {when(c.first.unix_ts)}{steps}
+                      {isRemoval && c.status === "applied" && " · Reinstall from the Microsoft Store if needed"}
                     </span>
                     {state && state !== "busy" && <span className="row-sub bad" role="alert">{state}</span>}
                   </span>
-                  <span className={`status ${h.status}`}>{STATUS_LABEL[h.status]}</span>
-                  {h.undoable && (
-                    <button className="btn ghost small" onClick={() => onUndo(h)} disabled={state === "busy"}>
+                  <span className={`status ${c.status}`}>{STATUS_LABEL[c.status]}</span>
+                  {c.undoable && (
+                    <button className="btn ghost small" onClick={() => onUndo(c)} disabled={state === "busy"}>
                       {state === "busy" ? "Undoing" : "Undo"}
                     </button>
                   )}

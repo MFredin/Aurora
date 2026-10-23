@@ -147,34 +147,6 @@
       "why": "News feed app. No system component depends on it."
     },
     {
-      "advice": "Gain varies by CPU. Undo it from History if you see no difference.",
-      "category": "power",
-      "confidence": "low",
-      "evidence": [
-        "Active plan: Balanced (381b4222-f694-41f0-9685-ff5bb260df2e)"
-      ],
-      "fix": {
-        "reversible": true,
-        "steps": [
-          {
-            "guid": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-            "op": "set_power_plan"
-          }
-        ]
-      },
-      "id": "power:plan",
-      "impact": {
-        "boot_ms": 0,
-        "idle_cpu_pct": 0.0,
-        "idle_ram_mb": 0
-      },
-      "priority": 0.6000000238418579,
-      "risk": "safe",
-      "score": 0.24000000953674316,
-      "title": "Windows is on the Balanced power plan",
-      "why": "Balanced lets the CPU drop to low clocks between bursts of work. High performance keeps it ready at the cost of more power use when idle. The effect on games is often small and varies by CPU."
-    },
-    {
       "advice": "Restart into the BIOS and enable XMP or EXPO. If the PC becomes unstable, turn it off again. Forge will not change firmware settings for you.",
       "category": "memory",
       "confidence": "medium",
@@ -348,6 +320,167 @@
       "score": 0.8999999761581421,
       "title": "Windows installs promoted apps on its own",
       "why": "Windows uses these switches to add sponsored apps to Start, install promoted apps and show suggestions. Turning them off keeps removed apps from coming back."
+    },
+    {
+      "advice": "The effect is often small. Undo it from History if you see no difference.",
+      "category": "power",
+      "confidence": "low",
+      "evidence": [
+        "Power mode on mains power: Balanced (00000000-0000-0000-0000-000000000000)"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "guid": "ded574b5-45a0-4f42-8737-46345c09c238",
+            "op": "set_power_mode"
+          }
+        ]
+      },
+      "id": "power:mode",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.6000000238418579,
+      "risk": "safe",
+      "score": 0.24000000953674316,
+      "title": "Power mode is Balanced",
+      "why": "Windows 11's power mode decides how quickly the CPU ramps up. Best performance keeps it ready for games, at the cost of more power and heat while plugged in."
+    },
+    {
+      "advice": "Takes effect after a restart. Older graphics cards ignore it.",
+      "category": "gaming",
+      "confidence": "low",
+      "evidence": [
+        "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers\\HwSchMode = 1"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "hive": "hklm",
+            "key": "SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers",
+            "name": "HwSchMode",
+            "op": "set_registry_dword",
+            "value": 2
+          }
+        ]
+      },
+      "id": "gaming:hags",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.5,
+      "risk": "caution",
+      "score": 0.1600000113248825,
+      "title": "Hardware-accelerated GPU scheduling is off",
+      "why": "Lets the graphics card manage its own memory and work queue. It can lower latency slightly and is required for DLSS Frame Generation. Effects vary by game and driver."
+    },
+    {
+      "advice": "Same switch as Settings > Display > Graphics > Optimizations for windowed games. Applies the next time a game starts.",
+      "category": "gaming",
+      "confidence": "medium",
+      "evidence": [
+        "Software\\Microsoft\\DirectX\\UserGpuPreferences\\DirectXUserGlobalSettings = \"VRROptimizeEnable=0;\""
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "hive": "hkcu",
+            "key": "Software\\Microsoft\\DirectX\\UserGpuPreferences",
+            "name": "DirectXUserGlobalSettings",
+            "op": "set_registry_string",
+            "value": "VRROptimizeEnable=0;SwapEffectUpgradeEnable=1;"
+          }
+        ]
+      },
+      "id": "gaming:windowed",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.699999988079071,
+      "risk": "safe",
+      "score": 0.4899999797344208,
+      "title": "Optimizations for windowed games are off",
+      "why": "Windows can present older DirectX games running in a window or borderless window the same way as full screen, which lowers input latency and allows variable refresh rate."
+    },
+    {
+      "advice": "Uses Windows' default schedule. Adjust it in Settings > System > Storage.",
+      "category": "storage",
+      "confidence": "high",
+      "evidence": [
+        "Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\\01 = 0"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "hive": "hkcu",
+            "key": "Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy",
+            "name": "01",
+            "op": "set_registry_dword",
+            "value": 1
+          }
+        ]
+      },
+      "id": "storage:sense",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.5,
+      "risk": "safe",
+      "score": 0.5,
+      "title": "Storage Sense is off",
+      "why": "Storage Sense is Windows' own automatic cleanup. It deletes old temporary files and empties the Recycle Bin on a schedule, so the drive doesn't slowly fill up."
+    },
+    {
+      "advice": "Save your work and restart when it suits you.",
+      "category": "system",
+      "confidence": "high",
+      "evidence": [
+        "Windows Update reports that a restart is required"
+      ],
+      "fix": null,
+      "id": "system:reboot-pending",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.8999999761581421,
+      "risk": "safe",
+      "score": 0.8999999761581421,
+      "title": "A restart is waiting to finish updates",
+      "why": "Windows Update has installed changes that only take effect after a restart. Until then, updated drivers and fixes aren't fully in use."
+    },
+    {
+      "advice": "Download the current driver from the official site: https://www.nvidia.com/drivers. Forge doesn't install drivers for you.",
+      "category": "drivers",
+      "confidence": "medium",
+      "evidence": [
+        "NVIDIA GeForce RTX 4070: version 32.0.15.5612, dated 2026-01-14"
+      ],
+      "fix": null,
+      "id": "driver:gpu:NVIDIA GeForce RTX 4070",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.800000011920929,
+      "risk": "safe",
+      "score": 0.5600000023841858,
+      "title": "Graphics driver is 9 months old",
+      "why": "Graphics drivers often bring fixes and speed-ups for recent games. Laptop makers sometimes ship their own versions, so check theirs first on a laptop."
     }
   ],
   "machine": {
@@ -387,15 +520,25 @@
         "width": 2560
       }
     ],
+    "dx_user_prefs": "VRROptimizeEnable=0;",
     "game_dvr_background": true,
     "game_mode": true,
+    "gpu_drivers": [
+      {
+        "date": "2026-01-14",
+        "name": "NVIDIA GeForce RTX 4070",
+        "version": "32.0.15.5612"
+      }
+    ],
     "gpus": [
       "NVIDIA GeForce RTX 4070"
     ],
+    "hags": false,
     "is_laptop": false,
     "mouse_acceleration": true,
     "on_battery": false,
     "os": "Windows 11 25H2",
+    "power_mode": "00000000-0000-0000-0000-000000000000",
     "power_plans": [
       {
         "guid": "381b4222-f694-41f0-9685-ff5bb260df2e",
@@ -415,38 +558,68 @@
     "ram_rated_mts": 6000,
     "ram_total_mb": 32768,
     "ram_used_mb": 9800,
+    "reboot_pending": true,
+    "recycle_bin_bytes": 640000000,
+    "scan_date": "2026-10-23",
     "startup": [
       {
         "command": "C:\\Users\\u\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe",
         "enabled": true,
         "location": "hkcu_run",
-        "name": "Discord"
+        "name": "Discord",
+        "note": null,
+        "protected": false
       },
       {
         "command": "C:\\Users\\u\\AppData\\Roaming\\Spotify\\Spotify.exe /background",
         "enabled": true,
         "location": "hkcu_run",
-        "name": "Spotify"
+        "name": "Spotify",
+        "note": null,
+        "protected": false
       },
       {
         "command": "C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe",
         "enabled": true,
         "location": "hklm_run32",
-        "name": "AdobeGCInvoker-1.0"
+        "name": "AdobeGCInvoker-1.0",
+        "note": null,
+        "protected": false
       },
       {
         "command": "%windir%\\system32\\SecurityHealthSystray.exe",
         "enabled": true,
         "location": "hklm_run",
-        "name": "SecurityHealth"
+        "name": "SecurityHealth",
+        "note": null,
+        "protected": false
       },
       {
         "command": "C:\\Windows\\System32\\DriverStore\\RtkAudUService64.exe",
         "enabled": true,
         "location": "hklm_run",
-        "name": "RtkAudUService"
+        "name": "RtkAudUService",
+        "note": null,
+        "protected": false
       }
     ],
+    "storage_sense": false,
+    "temp_bytes": 2300000000,
+    "top_memory": [
+      {
+        "memory_mb": 3100,
+        "name": "chrome"
+      },
+      {
+        "memory_mb": 640,
+        "name": "Discord"
+      },
+      {
+        "memory_mb": 410,
+        "name": "Steam"
+      }
+    ],
+    "uptime_hours": 216,
     "windows_suggestions_on": [
       "SilentInstalledAppsEnabled",
       "SubscribedContent-338388Enabled"
@@ -457,13 +630,18 @@
     "storage:low:C:",
     "startup:AdobeGCInvoker-1.0",
     "bloat:suggestions",
+    "system:reboot-pending",
     "gaming:dvr",
+    "driver:gpu:NVIDIA GeForce RTX 4070",
+    "storage:sense",
+    "gaming:windowed",
     "startup:Discord",
     "startup:Spotify",
     "ram:xmp",
     "gaming:mouse-accel",
     "appx:king.com.CandyCrushSaga",
     "appx:Microsoft.BingNews",
-    "power:plan"
+    "power:mode",
+    "gaming:hags"
   ]
 }

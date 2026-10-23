@@ -1,4 +1,4 @@
-import type { Finding, FixStep, HistoryStatus, Impact, Machine } from "./types";
+import type { Finding, FixStep, HistoryItem, HistoryStatus, Impact, Machine } from "./types";
 
 const BUILTIN_PLANS: Record<string, string> = {
   "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c": "High performance",
@@ -10,7 +10,16 @@ export function planName(guid: string, machine: Machine | null): string {
   return machine?.power_plans.find((p) => p.guid === guid)?.name ?? BUILTIN_PLANS[guid] ?? "another plan";
 }
 
+const MODE_NAMES: Record<string, string> = {
+  "961cc777-2547-4f9d-8174-7d86181b8a7a": "Best power efficiency",
+  "00000000-0000-0000-0000-000000000000": "Balanced",
+  "ded574b5-45a0-4f42-8737-46345c09c238": "Best performance",
+};
+
 const SETTING_NAMES: Record<string, string> = {
+  HwSchMode: "hardware-accelerated GPU scheduling",
+  "01": "Storage Sense",
+  DirectXUserGlobalSettings: "optimizations for windowed games",
   HistoricalCaptureEnabled: "Game Bar background recording",
   AutoGameModeEnabled: "Game Mode",
   SilentInstalledAppsEnabled: "automatic installs of promoted apps",
@@ -38,9 +47,13 @@ export function describeStep(s: FixStep, machine: Machine | null = null): string
     case "disable_startup_item": return `Stop ${s.name} from starting with Windows`;
     case "restore_startup_item": return `Let ${s.name} start with Windows again`;
     case "set_power_plan": return `Switch the power plan to ${planName(s.guid, machine)}`;
+    case "set_power_mode": return `Set the power mode to ${MODE_NAMES[s.guid] ?? "another mode"}`;
     case "set_registry_dword":
+      if (s.name === "HwSchMode") return `Turn ${s.value === 2 ? "on" : "off"} hardware-accelerated GPU scheduling`;
       return SETTING_NAMES[s.name] ? `Turn ${s.value ? "on" : "off"} ${SETTING_NAMES[s.name]}` : `Set ${s.name} to ${s.value}`;
     case "set_registry_string":
+      if (s.name === "DirectXUserGlobalSettings")
+        return `Turn ${s.value.includes("SwapEffectUpgradeEnable=1") ? "on" : "off"} optimizations for windowed games`;
       return MOUSE_NAMES[s.name] ? `${s.value === "0" ? "Turn off" : "Set"} ${MOUSE_NAMES[s.name]}${s.value === "0" ? "" : ` to ${s.value}`}` : `Set ${s.name} to ${s.value}`;
     case "delete_registry_value":
       return SETTING_NAMES[s.name] ? `Put ${SETTING_NAMES[s.name]} back to the Windows default` : `Remove the ${s.name} setting`;
@@ -95,6 +108,8 @@ export function firstSentence(text: string): string {
 export function switchFor(f: Finding): { on: boolean; onText: string; offText: string } {
   if (f.id === "gaming:game-mode") return { on: false, onText: "On", offText: "Off" };
   if (f.id === "power:plan") return { on: true, onText: "Balanced", offText: "High performance" };
+  if (f.id === "power:mode") return { on: true, onText: "Balanced", offText: "Best perf." };
+  if (["gaming:hags", "gaming:windowed", "storage:sense"].includes(f.id)) return { on: false, onText: "On", offText: "Off" };
   return { on: true, onText: "On", offText: "Off" };
 }
 
@@ -107,6 +122,49 @@ export function settingTitle(f: Finding): string {
     "gaming:mouse-accel": "Mouse acceleration",
     "bloat:suggestions": "Promoted apps and suggestions",
     "power:plan": "Power plan",
+    "power:mode": "Power mode",
+    "gaming:hags": "Hardware-accelerated GPU scheduling",
+    "gaming:windowed": "Optimizations for windowed games",
+    "storage:sense": "Storage Sense (automatic cleanup)",
   };
   return titles[f.id] ?? f.title;
+}
+
+export function gb(bytes: number | null | undefined): string {
+  if (!bytes) return "0 MB";
+  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
+}
+
+/** One change as History and "Changed by Forge" show it: all steps applied together. */
+export interface Change { key: number; items: HistoryItem[]; first: HistoryItem; undoable: boolean; status: HistoryItem["status"] }
+
+export function groupChanges(items: HistoryItem[]): Change[] {
+  const out: Change[] = [];
+  const byKey = new Map<number, Change>();
+  for (const h of items) {
+    const key = h.group ?? h.id;
+    let c = byKey.get(key);
+    if (!c) {
+      c = { key, items: [], first: h, undoable: false, status: h.status };
+      byKey.set(key, c);
+      out.push(c);
+    }
+    c.items.push(h);
+  }
+  for (const c of out) {
+    c.undoable = c.items.some((h) => h.undoable);
+    c.status = c.items.some((h) => h.status === "applied") ? "applied" : c.first.status;
+  }
+  return out;
+}
+
+/** Plain title for a change: what was done, e.g. "Turn off mouse acceleration". */
+export function changeTitle(c: Change, machine: Machine | null): string {
+  if (c.first.finding_id.startsWith("startup-app:")) return describeStep(c.first.step, machine);
+  const fid = c.first.finding_id;
+  const named: Record<string, string> = {
+    "gaming:mouse-accel": "Turn off mouse acceleration",
+    "bloat:suggestions": "Turn off promoted apps and suggestions",
+  };
+  return named[fid] ?? describeStep(c.items[c.items.length - 1].step, machine);
 }

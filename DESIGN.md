@@ -110,15 +110,15 @@ compiled, tested and packaged on a GitHub Windows runner. Nobody has run it on a
 
 | Area | State |
 |---|---|
-| Model, rules (11), engine, bloat DB, journal, allowlist | Built, 31 tests |
-| Parsers (power names, StartupApproved, SMBIOS speeds/count/chassis, GPUs, refresh, sizes) | Built, 13 tests |
+| Model, rules (18), engine, bloat DB, journal (with change groups), allowlist | Built, 43 tests |
+| Parsers (power names, StartupApproved, SMBIOS, GPUs, refresh, sizes, dates) and temp-file cleanup | Built, 14 tests |
 | Helper protocol, write-ahead journal, undo, failure paths | Built, 7 tests with a fake executor |
 | Windows collectors (`forge-scan/src/win.rs`) | Type-checks and clippy clean for Windows; CI runs `dump_scan` on a runner. Not compared against a real PC yet |
 | Helper Windows executor, journal ACL, restore point | Type-checks and clippy clean for Windows. Not run elevated yet |
 | Tauri shell, named pipe + UAC launch | Type-checks and clippy clean for Windows. Not run yet |
-| UI | Pulse redesign built; viewed in Chromium in every state (idle, scanning, overview, details, removal dialog, apps, history, 820 px), switch apply/undo round trip checked. Not viewed in WebView2 |
+| UI | Pulse redesign with Overview, Settings, Startup apps, Clean up and History. Overview fits without scrolling from 1024x680 up. Window opens at 1320x860, shrunk to 92% of the screen when smaller. Earlier: viewed in Chromium in every state (idle, scanning, overview, details, removal dialog, apps, history, 820 px), switch apply/undo round trip checked. Not viewed in WebView2 |
 | Installer | NSIS per-machine, built in CI. Unsigned. Installed and run on a real laptop: scan, UAC, startup disable and the restore-point message work |
-| Not implemented | Prove step (benchmarks), driver/thermal checks, per-game profiles, Windows Update revert detection, EcoQoS, code signing, auto-update |
+| Not implemented | Prove step (benchmarks), thermal checks, per-game profiles, Windows Update revert detection, EcoQoS, code signing, auto-update |
 
 ## 8. Next steps
 

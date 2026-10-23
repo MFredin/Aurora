@@ -29,7 +29,16 @@ Every change is listed under **History** with **Undo**. Uninstall from Settings 
 | Memory | RAM slower than rated (XMP/EXPO off) | Advice only (BIOS) |
 | Memory | Single memory module on a desktop | Advice only (hardware) |
 | Storage | System drive under 10% free; Windows on a hard drive | Advice only |
-| Power | Balanced plan on a desktop or plugged-in laptop (skipped on dual-CCD X3D CPUs, on battery, and where High performance doesn't exist) | Switch plan; undoable |
+| Power | Windows 11 power mode below Best performance (not on battery) | Switch mode; undoable |
+| Power | Balanced plan on Windows 10 desktops or plugged-in laptops (skipped on dual-CCD X3D CPUs, on battery, and where High performance doesn't exist) | Switch plan; undoable |
+| Gaming | Hardware-accelerated GPU scheduling off | Turn on (restart needed); undoable |
+| Gaming | Optimizations for windowed games off | Turn on; undoable |
+| Graphics | GPU driver older than 6 months | Advice (vendor link) |
+| System | Restart pending, or up for 7+ days | Advice |
+| Memory | Over 85% in use | Advice, lists the largest apps |
+| Storage | Storage Sense off | Turn on; undoable |
+| Storage | Temporary files and Recycle Bin | Clean up (files older than a day, not undoable) |
+| Startup | Every startup app | Switch on or off (Windows and security items are kept on); undoable |
 | Preinstalled apps | Known removable apps (only those the bloat DB marks safe) | Uninstall for your account; not undoable, reinstall from the Store |
 | Preinstalled apps | Windows installing promoted apps and showing suggestions | Turn off; undoable |
 

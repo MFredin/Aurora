@@ -28,3 +28,8 @@ export const Monitor = () => <Svg size={18}><rect x="2" y="4" width="20" height=
 export const Chip = () => <Svg size={18}><rect x="5" y="5" width="14" height="14" rx="2" /><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" /></Svg>;
 export const Disk = () => <Svg size={18}><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" /></Svg>;
 export const Check = () => <Svg size={16}><path d="M20 6L9 17l-5-5" /></Svg>;
+export const Sliders = () => <Svg><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></Svg>;
+export const Broom = () => <Svg><path d="M14 4l6 6" /><path d="M13.5 10.5L4 20" /><path d="M9.5 9.5l5 5-3 4.5H4.5l1-4.5z" /></Svg>;
+export const Trash = () => <Svg size={18}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></Svg>;
+export const Restart = () => <Svg size={18}><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 4v5h-5" /></Svg>;
+export const Lock = () => <Svg size={16}><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></Svg>;

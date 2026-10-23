@@ -93,7 +93,7 @@ ul { list-style: none; }
 .top-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; }
 .score { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border-radius: 20px; background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)); text-align: center; }
 .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .tile { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); min-width: 0; }
 .tile-k { color: var(--muted); font-size: 12px; }
 .tile-v { font-size: 24px; font-weight: 700; white-space: nowrap; }
@@ -184,12 +184,57 @@ button.row-main:hover .row-title { text-decoration: underline; text-decoration-c
 .toast { display: flex; align-items: baseline; gap: 14px; padding: 12px 14px; border-radius: 12px; background: #171a24; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); animation: pop 160ms ease; }
 .toast span { flex: 1; }
 
-/* Narrow windows (minimum 820 px) */
+/* Overview dashboard: sized to fit the window without scrolling */
+.content.fit { gap: 16px; }
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+button.tile { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.tile.as-link:hover { background: var(--card-2); border-color: rgba(255, 255, 255, 0.14); }
+.row.compact { min-height: 54px; padding: 6px 14px; }
+.row.compact .row-sub { white-space: nowrap; }
+.mini { display: flex; flex-direction: column; }
+.mini li { display: flex; align-items: center; gap: 10px; min-height: 40px; color: #c3c7d6; border-top: 1px solid var(--line); }
+.mini li:first-child { border-top: 0; }
+.mini li svg { flex: none; color: var(--muted); }
+.mini li span { flex: 1; }
+.mini li b { font-weight: 600; color: var(--text); }
+.link.plain { color: var(--text); text-align: left; }
+.link.plain:hover { color: #c7d2fe; }
+.locked { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 11px; }
+.row-sub { white-space: nowrap; }
+
+/* Slim scrollbars that match the theme */
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.16) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); background-clip: padding-box; border: 2px solid transparent; }
+
+/* Narrow windows (minimum 900 px) */
 @media (max-width: 1100px) {
-  .tiles, .app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 960px) {
+  .dash-grid { grid-template-columns: 1fr; }
+}
+/* Short windows (small laptops): tighten the overview so it still fits without scrolling */
+@media (max-height: 820px) {
+  .top { padding-top: 14px; }
+  .content.fit { gap: 12px; padding-top: 10px; padding-bottom: 16px; }
+  .content.fit .score .ring { width: 116px; height: 116px; }
+  .content.fit .score { padding-top: 14px; padding-bottom: 14px; gap: 8px; }
+  .content.fit .tile { padding: 10px 14px; }
+  .content.fit .tile-v { font-size: 21px; }
+  .content.fit .card { padding-top: 14px; padding-bottom: 14px; }
+  .dash-grid .rows li:nth-child(n + 4) { display: none; }
+  .mini li { min-height: 34px; }
+}
+@media (max-height: 700px) {
+  .dash-grid .rows li:nth-child(n + 3) { display: none; }
 }
 @media (max-width: 920px) {
   .top-grid { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .score { flex-direction: row; flex-wrap: wrap; }
   .content, .top { padding-left: 20px; padding-right: 20px; }
 }
