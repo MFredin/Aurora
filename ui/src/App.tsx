@@ -1,50 +1,63 @@
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useReducer } from "react";
 import { applyFix, history as loadHistory, scan, undo as undoChange } from "./api";
-import { LANES, RISK_LABEL, barWeight, describeImpact, describeStep } from "./format";
+import Apps, { ConfirmRemove } from "./Apps";
+import Detail from "./Detail";
+import { kindOf } from "./format";
 import History from "./History";
+import { Clock, Gauge, Grid, Logo, Refresh } from "./Icons";
 import Overhead from "./Overhead";
+import Overview from "./Overview";
 import type { Finding, HistoryItem, Machine, ScanEvent } from "./types";
 
-type Status = { kind: "idle" } | { kind: "applying" } | { kind: "applied" } | { kind: "failed"; message: string };
+export type Status = { kind: "idle" } | { kind: "applying" } | { kind: "applied" } | { kind: "failed"; message: string };
+export type View = "overview" | "apps" | "history";
+
 interface State {
   phase: "idle" | "scanning" | "done" | "failed";
   scanError: string | null;
   machine: Machine | null;
   findings: Finding[];
   status: Record<string, Status>;
-  selected: string | null;
-  view: "findings" | "history";
+  view: View;
+  detail: string | null;
+  picked: string[];
+  confirm: string[] | null;
   notices: string[];
   history: HistoryItem[];
   historyError: string | null;
-  undoing: Record<number, string | "busy">;
+  undoing: Record<number, string>;
 }
 type Action =
   | { type: "start" }
   | { type: "event"; e: ScanEvent }
   | { type: "scanFailed"; message: string }
-  | { type: "select"; id: string }
   | { type: "status"; id: string; s: Status }
-  | { type: "view"; view: State["view"] }
+  | { type: "view"; view: View }
+  | { type: "detail"; id: string | null }
+  | { type: "pick"; id: string; on: boolean }
+  | { type: "pickAll"; ids: string[] }
+  | { type: "confirm"; ids: string[] | null }
   | { type: "notice"; text: string }
   | { type: "dismiss"; index: number }
   | { type: "history"; items: HistoryItem[] | null; error?: string }
-  | { type: "undoing"; id: number; v: string | "busy" | null };
+  | { type: "undoing"; id: number; v: string | null };
 
 const initial: State = {
-  phase: "idle", scanError: null, machine: null, findings: [], status: {}, selected: null,
-  view: "findings", notices: [], history: [], historyError: null, undoing: {},
+  phase: "idle", scanError: null, machine: null, findings: [], status: {}, view: "overview", detail: null,
+  picked: [], confirm: null, notices: [], history: [], historyError: null, undoing: {},
 };
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "start":
-      return { ...s, phase: "scanning", scanError: null, machine: null, findings: [], status: {}, selected: null, view: "findings" };
-    case "scanFailed":
-      return { ...s, phase: "failed", scanError: a.message };
-    case "select": return { ...s, selected: a.id };
+      return { ...s, phase: "scanning", scanError: null, machine: null, findings: [], status: {}, detail: null, picked: [] };
+    case "scanFailed": return { ...s, phase: "failed", scanError: a.message };
     case "status": return { ...s, status: { ...s.status, [a.id]: a.s } };
-    case "view": return { ...s, view: a.view };
+    case "view": return { ...s, view: a.view, detail: null };
+    case "detail": return { ...s, detail: a.id };
+    case "pick": return { ...s, picked: a.on ? [...new Set([...s.picked, a.id])] : s.picked.filter((x) => x !== a.id) };
+    case "pickAll": return { ...s, picked: a.ids };
+    case "confirm": return { ...s, confirm: a.ids };
     case "notice": return s.notices.includes(a.text) ? s : { ...s, notices: [...s.notices, a.text] };
     case "dismiss": return { ...s, notices: s.notices.filter((_, i) => i !== a.index) };
     case "history":
@@ -56,15 +69,12 @@ function reducer(s: State, a: Action): State {
     }
     case "event":
       if (a.e.event === "machine") return { ...s, machine: a.e.data };
-      if (a.e.event === "finding") {
-        const findings = [...s.findings, a.e.data];
-        return { ...s, findings };
-      }
+      if (a.e.event === "finding") return { ...s, findings: [...s.findings, a.e.data] };
       {
         // Done: show findings in the engine's ranking.
         const rank = new Map(a.e.data.order.map((id, i) => [id, i]));
         const findings = [...s.findings].sort((x, y) => (rank.get(x.id) ?? 1e9) - (rank.get(y.id) ?? 1e9));
-        return { ...s, phase: "done", findings, selected: s.selected ?? findings[0]?.id ?? null };
+        return { ...s, phase: "done", findings };
       }
   }
 }
@@ -82,9 +92,7 @@ export default function App() {
 
   const runScan = useCallback(() => {
     dispatch({ type: "start" });
-    scan((e) => dispatch({ type: "event", e })).catch((err) => {
-      dispatch({ type: "scanFailed", message: String(err) });
-    });
+    scan((e) => dispatch({ type: "event", e })).catch((err) => dispatch({ type: "scanFailed", message: String(err) }));
   }, []);
 
   const apply = useCallback(async (ids: string[]) => {
@@ -116,155 +124,113 @@ export default function App() {
     refreshHistory();
   }, [refreshHistory]);
 
-  const safeIds = useMemo(
-    () => s.findings.filter((f) => f.fix && f.risk === "safe" && !["applied", "applying"].includes(s.status[f.id]?.kind ?? "")).map((f) => f.id),
+  /** A setting switch applies the fix, or undoes Forge's latest change for that finding. */
+  const toggle = useCallback((f: Finding) => {
+    const st = s.status[f.id]?.kind;
+    if (st === "applying") return;
+    const last = s.history.find((h) => h.finding_id === f.id && h.undoable && (h.status === "applied" || h.status === "interrupted"));
+    if (st === "applied" && last) undo(last);
+    else apply([f.id]);
+  }, [s.status, s.history, apply, undo]);
+
+  const lowRisk = useMemo(
+    () => s.findings.filter((f) => kindOf(f) === "setting" && f.risk === "safe" && !["applied", "applying"].includes(s.status[f.id]?.kind ?? "")).map((f) => f.id),
     [s.findings, s.status],
   );
-  const selected = s.findings.find((f) => f.id === s.selected) ?? null;
-  const laneTotals = LANES.map((l) => s.findings.filter((f) => l.cats.includes(f.category)).reduce((n, f) => n + barWeight(f), 0));
-  const maxTotal = Math.max(1, ...laneTotals);
-  const showNav = s.phase !== "idle" || s.history.length > 0;
+  const apps = s.findings.filter((f) => kindOf(f) === "app");
+  const openApps = apps.filter((f) => s.status[f.id]?.kind !== "applied");
+  const detail = s.findings.find((f) => f.id === s.detail) ?? null;
+
+  const nav: { view: View; label: string; icon: ReactNode; badge?: number }[] = [
+    { view: "overview", label: "Overview", icon: <Gauge /> },
+    { view: "apps", label: "Apps", icon: <Grid />, badge: openApps.length || undefined },
+    { view: "history", label: "History", icon: <Clock /> },
+  ];
+  const m = s.machine;
 
   return (
     <div className="app">
-      <header className="top">
-        <h1>Forge</h1>
-        <p className="specs" aria-label="This PC">
-          {s.machine ? (<>
-            <span>{s.machine.cpu_name}</span>
-            {s.machine.gpus.map((g) => <span key={g}>{g}</span>)}
-            <span>
-              {Math.round(s.machine.ram_total_mb / 1024)} GB RAM
-              {s.machine.ram_configured_mts ? ` at ${s.machine.ram_configured_mts} MT/s` : ""}
-            </span>
-            <span>{s.machine.os}</span>
-            {s.machine.is_laptop && <span>{s.machine.on_battery ? "Laptop on battery" : "Laptop"}</span>}
-          </>) : <span className="muted">{scanning ? "Reading this PC" : "Scan to see what is slowing this PC down."}</span>}
-        </p>
-        {showNav && (
-          <div className="seg" role="group" aria-label="View">
-            <button aria-pressed={s.view === "findings"} onClick={() => dispatch({ type: "view", view: "findings" })}>Findings</button>
-            <button aria-pressed={s.view === "history"} onClick={() => { refreshHistory(); dispatch({ type: "view", view: "history" }); }}>
-              History{s.history.length ? ` (${s.history.length})` : ""}
-            </button>
+      <nav className="rail" aria-label="Main">
+        <div className="brand" title="Forge"><Logo /></div>
+        {nav.map((n) => (
+          <button key={n.view} className="rail-btn" aria-label={n.label} title={n.label} aria-current={s.view === n.view ? "page" : undefined}
+            onClick={() => { if (n.view === "history") refreshHistory(); dispatch({ type: "view", view: n.view }); }}>
+            {n.icon}
+            {n.badge ? <span className="rail-badge">{n.badge}</span> : null}
+          </button>
+        ))}
+      </nav>
+
+      <div className="main">
+        <header className="top">
+          <div className="top-left">
+            <h1>{s.view === "overview" ? "Overview" : s.view === "apps" ? "Apps" : "History"}</h1>
+            {m && (
+              <span className="chip">
+                {[m.cpu_name.replace(/\(R\)|\(TM\)/g, "").replace(/\s+/g, " "), m.gpus[0], `${Math.round(m.ram_total_mb / 1024)} GB`,
+                  m.is_laptop ? (m.on_battery ? "Laptop on battery" : "Laptop") : null].filter(Boolean).join(" · ")}
+              </span>
+            )}
           </div>
+          <div className="top-right">
+            <Overhead />
+            {s.phase !== "idle" && (
+              <button className="btn ghost" onClick={runScan} disabled={scanning}>
+                <span className={scanning ? "spin" : ""}><Refresh /></span>{scanning ? "Scanning" : "Scan again"}
+              </button>
+            )}
+          </div>
+        </header>
+
+        {s.view === "overview" && (
+          <Overview phase={s.phase} scanError={s.scanError} machine={m} findings={s.findings} status={s.status}
+            history={s.history} undoing={s.undoing} picked={s.picked} lowRisk={lowRisk}
+            onScan={runScan} onApply={apply} onToggle={toggle} onUndo={undo}
+            onDetail={(id) => dispatch({ type: "detail", id })}
+            onPick={(id, on) => dispatch({ type: "pick", id, on })}
+            onRemove={(ids) => dispatch({ type: "confirm", ids })}
+            onOpenApps={() => dispatch({ type: "view", view: "apps" })} />
         )}
-        <button className="btn primary" onClick={runScan} disabled={scanning}>
-          {scanning ? "Scanning" : s.phase === "idle" ? "Scan this PC" : "Scan again"}
-        </button>
-      </header>
+        {s.view === "apps" && (
+          <Apps phase={s.phase} apps={apps} status={s.status} picked={s.picked} history={s.history}
+            onPick={(id, on) => dispatch({ type: "pick", id, on })}
+            onPickAll={(ids) => dispatch({ type: "pickAll", ids })}
+            onRemove={(ids) => dispatch({ type: "confirm", ids })}
+            onDetail={(id) => dispatch({ type: "detail", id })} onScan={runScan} />
+        )}
+        {s.view === "history" && (
+          <History items={s.history} error={s.historyError} undoing={s.undoing} machine={m} onUndo={undo} />
+        )}
+      </div>
+
+      {detail && (
+        <Detail f={detail} machine={m} status={s.status[detail.id] ?? { kind: "idle" }}
+          onApply={() => apply([detail.id])}
+          onRemove={() => dispatch({ type: "confirm", ids: [detail.id] })}
+          onClose={() => dispatch({ type: "detail", id: null })} />
+      )}
+
+      {s.confirm && (
+        <ConfirmRemove apps={s.findings.filter((f) => s.confirm?.includes(f.id))}
+          onCancel={() => dispatch({ type: "confirm", ids: null })}
+          onConfirm={() => {
+            const ids = s.confirm ?? [];
+            dispatch({ type: "confirm", ids: null });
+            dispatch({ type: "pickAll", ids: [] });
+            apply(ids);
+          }} />
+      )}
 
       {s.notices.length > 0 && (
-        <div className="notices" role="status">
+        <div className="toasts" role="status">
           {s.notices.map((n, i) => (
-            <p key={n} className="notice">
+            <div key={n} className="toast">
               <span>{n}</span>
               <button className="link" onClick={() => dispatch({ type: "dismiss", index: i })}>Dismiss</button>
-            </p>
+            </div>
           ))}
         </div>
       )}
-
-      {s.view === "history" ? (
-        <History items={s.history} error={s.historyError} undoing={s.undoing} machine={s.machine} onUndo={undo} />
-      ) : (
-        <main className="body">
-          <section className={`lanes${scanning ? " is-scanning" : ""}`} aria-label="Findings by area">
-            {s.phase === "failed" && (
-              <p className="scan-error" role="alert">
-                The scan didn't finish, so these results are incomplete. Nothing was changed. {s.scanError}
-              </p>
-            )}
-            {LANES.map(({ cats, label, clear }, li) => {
-              const items = s.findings.filter((f) => cats.includes(f.category));
-              if (label === "Other" && items.length === 0) return null;
-              const note = s.phase === "idle" ? "Not scanned yet"
-                : items.length ? `${items.length} to review`
-                : scanning ? "Checking"
-                : s.phase === "failed" ? "Not checked"
-                : clear;
-              return (
-                <div className="lane" key={label}>
-                  <div className="lane-head">
-                    <h2>{label}</h2>
-                    <span className="lane-note">{note}</span>
-                  </div>
-                  <div className="bar" aria-hidden><i style={{ transform: `scaleX(${items.length ? Math.max(0.06, laneTotals[li] / maxTotal) : 0})` }} /></div>
-                  <ul>
-                    {items.map((f) => {
-                      const st = s.status[f.id]?.kind ?? "idle";
-                      return (
-                        <li key={f.id}>
-                          <button className={`row${f.id === s.selected ? " is-selected" : ""}`} aria-pressed={f.id === s.selected} onClick={() => dispatch({ type: "select", id: f.id })}>
-                            <span className={`risk ${f.risk}`} role="img" aria-label={RISK_LABEL[f.risk]} />
-                            <span className="row-title">{f.title}</span>
-                            {!f.fix && st === "idle" && <span className="tag">Advice</span>}
-                            {st === "applied" && <span className="tag done">Applied</span>}
-                            {st === "failed" && <span className="tag failed">Failed</span>}
-                            {st === "applying" && <span className="tag">Applying</span>}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })}
-          </section>
-
-          <aside className="detail" aria-live="polite">
-            {selected ? <Detail f={selected} machine={s.machine} status={s.status[selected.id] ?? { kind: "idle" }} onApply={() => apply([selected.id])} />
-              : <div className="empty">
-                  <h2>{s.phase === "idle" ? "Start with a scan" : scanning ? "Scanning" : "Pick a finding"}</h2>
-                  <p>{s.phase === "idle"
-                    ? "Forge reads your hardware, settings and startup items. It changes nothing until you apply a fix, and every fix can be undone from History."
-                    : scanning ? "Results appear as Forge finds them." : "Details and the exact changes appear here."}</p>
-                </div>}
-          </aside>
-        </main>
-      )}
-
-      <footer className="foot">
-        <Overhead />
-        {s.view === "findings" && safeIds.length > 0 && s.phase === "done" && (
-          <button className="btn" onClick={() => apply(safeIds)}>Apply low-risk fixes ({safeIds.length})</button>
-        )}
-      </footer>
     </div>
-  );
-}
-
-function Detail({ f, machine, status, onApply }: { f: Finding; machine: Machine | null; status: Status; onApply: () => void }) {
-  const impact = describeImpact(f.impact);
-  const isRemoval = f.fix?.steps.some((st) => st.op === "remove_appx") ?? false;
-  return (
-    <article>
-      <h2>{f.title}</h2>
-      <p className="risk-line"><span className={`risk ${f.risk}`} aria-hidden /> {f.fix ? RISK_LABEL[f.risk] : f.risk === "expert" ? "Expert change, advice only" : "Advice only"}</p>
-      <p>{f.why}</p>
-      {impact.length > 0 && (
-        <p className="impact"><strong>Rough estimate.</strong> {impact.join(", ")}. This is a typical figure, not a measurement of this PC.</p>
-      )}
-      <h3>What Forge found</h3>
-      <ul className="evidence">{f.evidence.map((e) => <li key={e}><code>{e}</code></li>)}</ul>
-      {f.fix ? (<>
-        <h3>What will change</h3>
-        <ul className="steps">{f.fix.steps.map((st, i) => <li key={i}>{describeStep(st, machine)}</li>)}</ul>
-        <p className="muted">{f.fix.reversible ? "You can undo this from History." : "This cannot be undone automatically."}</p>
-        {f.advice && <p className="muted">{f.advice}</p>}
-        <p className="muted small">Windows asks for permission the first time you apply a fix in a session. Forge also asks Windows for a restore point first.</p>
-        <button className="btn primary" onClick={onApply} disabled={status.kind === "applying" || status.kind === "applied"}>
-          {status.kind === "applying" ? (isRemoval ? "Removing" : "Applying")
-            : status.kind === "applied" ? (isRemoval ? "Removed" : "Applied")
-            : status.kind === "failed" ? "Try again"
-            : isRemoval ? "Remove app" : "Apply fix"}
-        </button>
-        {status.kind === "failed" && <p className="error" role="alert">{status.message}</p>}
-      </>) : f.advice && (<>
-        <h3>What to do</h3>
-        <p className="advice">{f.advice}</p>
-        <p className="muted">Forge doesn't change this for you.</p>
-      </>)}
-    </article>
   );
 }

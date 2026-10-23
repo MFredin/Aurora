@@ -16,6 +16,8 @@ forge-core = { path = "../crates/forge-core" }
 forge-scan = { path = "../crates/forge-scan" }
 
 [target."cfg(windows)".dependencies]
+# Same version wry uses, so the WebView2 controller types match (minimize handling in main.rs).
+webview2-com = "0.39.1"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]

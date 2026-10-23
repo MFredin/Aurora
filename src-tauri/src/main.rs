@@ -208,6 +208,23 @@ fn self_stats(state: State<'_, AppState>) -> SelfStats {
     lock(&state.meter).sample()
 }
 
+/// WebView2 keeps running scripts and timers while its window is minimized unless the host says
+/// otherwise. Marking it invisible fires `visibilitychange` (the self-meter stops polling) and
+/// lets WebView2 throttle the page, so Forge costs nothing while minimized.
+fn set_webview_visible(window: &tauri::Window, visible: bool) {
+    #[cfg(windows)]
+    {
+        use tauri::Manager;
+        if let Some(wv) = window.app_handle().get_webview_window(window.label()) {
+            let _ = wv.with_webview(move |p| unsafe {
+                let _ = p.controller().SetIsVisible(visible);
+            });
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (window, visible);
+}
+
 /// Set at the top of `main`, for the cold-start measurement.
 static STARTED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
@@ -225,6 +242,12 @@ fn main() {
     STARTED.get_or_init(Instant::now);
     tauri::Builder::default()
         .manage(AppState::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Resized(_) = event {
+                let minimized = window.is_minimized().unwrap_or(false);
+                set_webview_visible(window, !minimized);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             scan, apply_fix, undo, history, self_stats, ui_ready
         ])

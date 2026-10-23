@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { selfStats } from "./api";
 import type { SelfStats } from "./types";
 
-/** Forge reports its own cost, including its WebView2 processes. Polls every 2 s, only while visible. */
+/** Forge reports its own cost (private memory, like Task Manager), including its WebView2 processes.
+ * Polls every 2 s, only while visible; the shell marks the webview hidden when minimized. */
 export default function Overhead() {
   const [s, setS] = useState<SelfStats | null>(null);
   useEffect(() => {
@@ -15,10 +16,10 @@ export default function Overhead() {
     document.addEventListener("visibilitychange", onVis);
     return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
   }, []);
-  if (!s) return <span className="overhead" />;
+  if (!s) return <span className="chip meter" />;
   return (
-    <span className="overhead" title="Forge and its window processes, right now">
-      Forge is using {s.rss_mb.toFixed(0)} MB and {s.cpu_pct.toFixed(1)}% CPU across {s.processes} {s.processes === 1 ? "process" : "processes"}
+    <span className="chip meter" title={`Forge and its ${s.processes} window processes, as Task Manager's Memory column counts them`}>
+      Forge {s.memory_mb.toFixed(0)} MB · {s.cpu_pct.toFixed(1)}% CPU
     </span>
   );
 }

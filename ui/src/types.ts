@@ -33,6 +33,8 @@ export interface Finding {
 
 export interface PowerPlan { guid: string; name: string }
 
+export interface Display { name: string; width: number; height: number; current_hz: number; max_hz: number }
+
 export interface Machine {
   os: string;
   is_laptop: boolean;
@@ -41,6 +43,8 @@ export interface Machine {
   cpu_threads: number;
   ram_total_mb: number;
   ram_configured_mts: number | null;
+  ram_rated_mts: number | null;
+  displays: Display[];
   gpus: string[];
   power_plans: PowerPlan[];
 }
@@ -50,7 +54,7 @@ export type ScanEvent =
   | { event: "finding"; data: Finding }
   | { event: "done"; data: { order: string[] } };
 
-export interface SelfStats { rss_mb: number; cpu_pct: number; processes: number }
+export interface SelfStats { memory_mb: number; cpu_pct: number; processes: number }
 
 export interface ApplyResult { restore_point: string | null; warning: string | null }
 

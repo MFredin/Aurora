@@ -86,7 +86,7 @@ Add new entries at the bottom. Format: context, decision, consequences. Mark sup
 1. **Product name.** "Forge" is a placeholder; the repository is named Aurora. Needs a name, domain and trademark check before any public build.
 2. **Open-core or closed.** Open scanner + DB as a trust signal, paid fix engine/profiles? Decide before M5.
 3. **Monetization and licensing.** Free tier scope, Pro features, license enforcement without being intrusive.
-4. **WebView2 vs native UI.** Decided by the M1 measurements.
+4. ~~**WebView2 vs native UI.**~~ Stay on WebView2: about 65 to 72 MB private memory and 0.6 s cold start on the CI runner, within budget (PERF-BUDGET.md). Revisit if real-GPU machines exceed 150 MB.
 5. ~~**Elevation UX.**~~ Decided in ADR-007: one prompt per session (5-minute idle).
 6. **Windows 10.** Support, or Windows 11 only? (Windows 10 is past end of support; check user base before spending effort.)
 7. **ARM64 Windows.** Build target in CI?

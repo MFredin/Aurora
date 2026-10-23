@@ -369,6 +369,32 @@ fn disk_kind(mount: &str) -> Option<DiskKind> {
     })
 }
 
+/// Private working set of a process in bytes (Task Manager's "Memory" column).
+pub fn private_working_set(pid: u32) -> Option<u64> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let mut c = PROCESS_MEMORY_COUNTERS_EX2 {
+            cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32,
+            ..Default::default()
+        };
+        let ok = GetProcessMemoryInfo(
+            h,
+            (&mut c as *mut PROCESS_MEMORY_COUNTERS_EX2).cast::<PROCESS_MEMORY_COUNTERS>(),
+            c.cb,
+        );
+        CloseHandle(h);
+        (ok != 0).then_some(c.PrivateWorkingSetSize as u64)
+    }
+}
+
 /// While alive, the current thread runs at background CPU, I/O and memory priority.
 pub struct BackgroundGuard;
 impl BackgroundGuard {

@@ -84,17 +84,19 @@ Curating and testing this list on real machines is the long-term moat and ongoin
 
 ## 6. UI concept
 
-Telemetry bench. The machine reads as a spec sheet across the top. Findings fall into lanes (Gaming, Startup,
-Memory, Storage, Power, Preinstalled apps); each lane has a bar showing its share of estimated gain.
-During a scan a single amber beam sweeps the lanes and results stream in. Selecting a finding opens
-its detail: why, what Forge found, exactly what will change, whether it can be undone.
+"Pulse" with Fluent-style settings switches (chosen 2026-10-23; mockups on the design canvas).
 
-- Palette: petrol `#0A1A21`, panel `#10252E`, bone text `#E6EEF0`, amber `#FFB44D` for gain and
-  action, teal `#3DDBC0` for safe and applied, violet `#A78BFA` for expert changes.
-- Type: the Windows UI font (Segoe UI Variable) for speed and native feel; tabular numerals.
-- Risk is encoded by shape as well as color (filled circle, ring, diamond).
-- Copy: sentence case, plain verbs. One name per action ("Apply fix", then "Applied").
-- Viewed in Chromium in every state; not yet in WebView2 at 125%/150% scaling or high contrast.
+- Shell: slim icon rail (Overview, Apps, History) and a header with the machine and Forge's own cost.
+- Overview: a progress ring (things to tune, done so far) with one gradient action, "Apply N low-risk
+  fixes"; stat tiles (refresh rate, startup apps, bloatware, memory); a bloatware grid where you tick
+  apps and confirm removal; **Settings** rows, one switch each, where flipping applies the fix and
+  flipping back undoes it; advice cards for things Forge doesn't change; "Changed by Forge" with Undo.
+- Details open in a side panel: why, evidence, exactly what changes, and whether it can be undone.
+- App removal always asks first and says it can't be undone by Forge.
+- Palette: near-black `#0a0b10`, translucent cards, violet `#7c5cff` to cyan `#22d3ee` accent, green
+  for low risk and done, amber for check first. Windows system font; tabular numerals.
+- Motion: transform/opacity only; the ring spins only while scanning; none under reduced motion.
+- Bundle: 81 KB JS / 3.2 KB CSS gzipped, inside the budget.
 
 ## 6b. Not in the MVP on purpose
 
@@ -114,7 +116,7 @@ compiled, tested and packaged on a GitHub Windows runner. Nobody has run it on a
 | Windows collectors (`forge-scan/src/win.rs`) | Type-checks and clippy clean for Windows; CI runs `dump_scan` on a runner. Not compared against a real PC yet |
 | Helper Windows executor, journal ACL, restore point | Type-checks and clippy clean for Windows. Not run elevated yet |
 | Tauri shell, named pipe + UAC launch | Type-checks and clippy clean for Windows. Not run yet |
-| UI | Built and viewed in Chromium in every state (idle, scanning, results, advice, applied, history, 820 px). Not viewed in WebView2 |
+| UI | Pulse redesign built; viewed in Chromium in every state (idle, scanning, overview, details, removal dialog, apps, history, 820 px), switch apply/undo round trip checked. Not viewed in WebView2 |
 | Installer | NSIS per-machine, built in CI. Unsigned. Installed and run on a real laptop: scan, UAC, startup disable and the restore-point message work |
 | Not implemented | Prove step (benchmarks), driver/thermal checks, per-game profiles, Windows Update revert detection, EcoQoS, code signing, auto-update |
 

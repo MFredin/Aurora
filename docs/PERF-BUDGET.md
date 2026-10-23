@@ -77,6 +77,11 @@ Reading:
 
 Still needed: the same script on a real laptop and desktop (real GPU, real drivers).
 
+Follow-ups done (2026-10-23): the in-app meter now reports private working set (matches Task
+Manager), re-lists processes only every tenth sample, and the shell marks WebView2 invisible while
+the window is minimized, so the page stops polling and WebView2 can throttle. Decision: stay on
+WebView2 (owner, 2026-10-23).
+
 ## The WebView2 question (decide in M1)
 
 WebView2 is already on Windows 11, but it spawns several processes whose memory counts. If the measured

@@ -56,7 +56,7 @@ export async function history(): Promise<HistoryItem[]> {
 
 export async function selfStats(): Promise<SelfStats> {
   if (inTauri) return invoke("self_stats");
-  return { rss_mb: 96 + Math.random() * 4, cpu_pct: Math.random() * 0.3, processes: 5 };
+  return { memory_mb: 70 + Math.random() * 3, cpu_pct: Math.random() * 0.2, processes: 7 };
 }
 
 /** Tells the shell the first frame is on screen (cold-start measurement; no-op unless measuring). */

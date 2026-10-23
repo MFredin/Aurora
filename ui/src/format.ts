@@ -1,14 +1,4 @@
-import type { Category, Finding, FixStep, HistoryStatus, Impact, Machine } from "./types";
-
-export const LANES: { cats: Category[]; label: string; clear: string }[] = [
-  { cats: ["gaming"], label: "Gaming", clear: "Display and Game Bar settings suit gaming." },
-  { cats: ["startup"], label: "Startup", clear: "Nothing slows your sign-in." },
-  { cats: ["memory"], label: "Memory", clear: "Memory runs at its rated speed." },
-  { cats: ["storage"], label: "Storage", clear: "Drives have room and suit the job." },
-  { cats: ["power"], label: "Power", clear: "Power settings suit this PC." },
-  { cats: ["bloat"], label: "Preinstalled apps", clear: "No removable preinstalled apps found." },
-  { cats: ["drivers", "thermal"], label: "Other", clear: "Nothing else to report." },
-];
+import type { Finding, FixStep, HistoryStatus, Impact, Machine } from "./types";
 
 const BUILTIN_PLANS: Record<string, string> = {
   "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c": "High performance",
@@ -66,11 +56,6 @@ export function describeImpact(i: Impact): string[] {
   return out;
 }
 
-/** Display-only weight for lane bars: the engine's score, with a floor so every lane with findings shows. */
-export function barWeight(f: Finding): number {
-  return Math.max(0.15, f.score);
-}
-
 export const RISK_LABEL = { safe: "Low risk", caution: "Check first", expert: "Expert change" } as const;
 
 export const STATUS_LABEL: Record<HistoryStatus, string> = {
@@ -85,4 +70,43 @@ export function when(unixTs: number): string {
   const today = new Date();
   const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return d.toDateString() === today.toDateString() ? `Today ${time}` : `${d.toLocaleDateString()} ${time}`;
+}
+
+export type Kind = "app" | "setting" | "advice";
+
+/** How a finding is acted on: removed (app), switched (setting) or explained (advice). */
+export function kindOf(f: Finding): Kind {
+  if (!f.fix) return "advice";
+  return f.fix.steps.some((s) => s.op === "remove_appx") ? "app" : "setting";
+}
+
+/** First sentence of a finding's reason, for one-line row subtitles. */
+export function firstSentence(text: string): string {
+  const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [text];
+  const first = sentences[0].trim();
+  // "Your choice." alone says nothing; take the next sentence too.
+  return first.length < 30 && sentences[1] ? `${first} ${sentences[1].trim()}` : first;
+}
+
+/**
+ * The switch a setting row shows: the setting's current state, and the words for each position.
+ * Applying the fix moves the switch to the other position.
+ */
+export function switchFor(f: Finding): { on: boolean; onText: string; offText: string } {
+  if (f.id === "gaming:game-mode") return { on: false, onText: "On", offText: "Off" };
+  if (f.id === "power:plan") return { on: true, onText: "Balanced", offText: "High performance" };
+  return { on: true, onText: "On", offText: "Off" };
+}
+
+/** Short row titles for settings, phrased as the thing the switch controls. */
+export function settingTitle(f: Finding): string {
+  if (f.id.startsWith("startup:")) return f.title;
+  const titles: Record<string, string> = {
+    "gaming:dvr": "Game Bar background recording",
+    "gaming:game-mode": "Game Mode",
+    "gaming:mouse-accel": "Mouse acceleration",
+    "bloat:suggestions": "Promoted apps and suggestions",
+    "power:plan": "Power plan",
+  };
+  return titles[f.id] ?? f.title;
 }

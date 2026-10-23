@@ -76,17 +76,24 @@ pub fn collect() -> Snapshot {
 /// GPU processes, and the helper when it runs). Shown in the UI so the app is accountable.
 #[derive(Serialize, Clone, Copy, Debug)]
 pub struct SelfStats {
-    /// Sum of working sets, MB.
-    pub rss_mb: f32,
+    /// Sum of private working sets, MB: the "Memory" column in Task Manager. (Working set would
+    /// also count pages shared with every other process and overstate Forge's cost.)
+    pub memory_mb: f32,
     /// Share of total CPU capacity, 0-100.
     pub cpu_pct: f32,
     pub processes: u32,
 }
 
+/// How often (in samples) to re-list every process to find new children. In between only the
+/// known tree is refreshed, which keeps the meter itself cheap.
+const RESCAN_EVERY: u32 = 10;
+
 pub struct SelfMeter {
     sys: System,
     pid: Option<Pid>,
     cores: f32,
+    tree: Vec<Pid>,
+    samples: u32,
 }
 impl SelfMeter {
     pub fn new() -> Self {
@@ -94,44 +101,62 @@ impl SelfMeter {
             sys: System::new(),
             pid: sysinfo::get_current_pid().ok(),
             cores: std::thread::available_parallelism().map_or(1, |n| n.get()) as f32,
+            tree: vec![],
+            samples: 0,
         }
     }
     /// CPU % is measured between consecutive calls, so poll at a low rate (every 2 s while visible).
     pub fn sample(&mut self) -> SelfStats {
-        let zero = SelfStats {
-            rss_mb: 0.0,
-            cpu_pct: 0.0,
-            processes: 0,
-        };
         let Some(root) = self.pid else {
-            return zero;
+            return SelfStats {
+                memory_mb: 0.0,
+                cpu_pct: 0.0,
+                processes: 0,
+            };
         };
-        self.sys.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing()
-                .with_memory()
-                .with_cpu()
-                .with_exe(UpdateKind::Never),
-        );
-        let tree = descendants(
-            root,
-            self.sys.processes().iter().map(|(p, pr)| (*p, pr.parent())),
-        );
-        let (mut mem, mut cpu) = (0u64, 0f32);
-        for pid in &tree {
+        let kind = ProcessRefreshKind::nothing()
+            .with_memory()
+            .with_cpu()
+            .with_exe(UpdateKind::Never);
+        if self.samples % RESCAN_EVERY == 0 || self.tree.is_empty() {
+            self.sys
+                .refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+            self.tree = descendants(
+                root,
+                self.sys.processes().iter().map(|(p, pr)| (*p, pr.parent())),
+            )
+            .into_iter()
+            .collect();
+        } else {
+            self.sys
+                .refresh_processes_specifics(ProcessesToUpdate::Some(&self.tree), true, kind);
+        }
+        self.samples = self.samples.wrapping_add(1);
+        let (mut mem, mut cpu, mut alive) = (0u64, 0f32, 0u32);
+        for pid in &self.tree {
             if let Some(p) = self.sys.process(*pid) {
-                mem += p.memory();
+                mem += private_memory(*pid).unwrap_or_else(|| p.memory());
                 cpu += p.cpu_usage();
+                alive += 1;
             }
         }
         SelfStats {
-            rss_mb: mem as f32 / 1_048_576.0,
+            memory_mb: mem as f32 / 1_048_576.0,
             cpu_pct: cpu / self.cores,
-            processes: tree.len() as u32,
+            processes: alive,
         }
     }
 }
+
+#[cfg(windows)]
+fn private_memory(pid: Pid) -> Option<u64> {
+    win::private_working_set(pid.as_u32())
+}
+#[cfg(not(windows))]
+fn private_memory(_: Pid) -> Option<u64> {
+    None
+}
+
 impl Default for SelfMeter {
     fn default() -> Self {
         Self::new()

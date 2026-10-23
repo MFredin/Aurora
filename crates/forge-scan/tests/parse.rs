@@ -162,5 +162,9 @@ fn collect_works_on_this_machine() {
     assert!(s.ram_total_mb > 0 && s.cpu_threads > 0);
     let mut m = forge_scan::SelfMeter::new();
     let st = m.sample();
-    assert!(st.rss_mb > 0.0 && st.processes >= 1);
+    assert!(st.memory_mb > 0.0 && st.processes >= 1);
+    assert!(
+        m.sample().processes >= 1,
+        "second sample refreshes only the known tree"
+    );
 }
