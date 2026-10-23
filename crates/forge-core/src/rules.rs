@@ -1,6 +1,9 @@
 //! Rules turn a Snapshot into findings. Pure functions: easy to test, no I/O.
 use crate::bloat::{BloatDb, Kind, Verdict};
-use crate::ipc::{CONTENT_DELIVERY, GAME_BAR, GAME_DVR, MOUSE, MOUSE_VALUES};
+use crate::ipc::{
+    CONTENT_DELIVERY, DIRECTX_PREFS, DIRECTX_PREFS_VALUE, GAME_BAR, GAME_DVR, GRAPHICS_DRIVERS,
+    MOUSE, MOUSE_VALUES, STORAGE_SENSE, dx_pref, with_dx_pref,
+};
 use crate::model::*;
 use crate::power;
 use crate::snapshot::{DiskKind, Snapshot};
@@ -23,7 +26,25 @@ pub fn default_rules() -> Vec<Box<dyn Rule>> {
         Box::new(GameModeRule),
         Box::new(MouseAccelRule),
         Box::new(SuggestionsRule),
+        Box::new(PowerModeRule),
+        Box::new(HagsRule),
+        Box::new(WindowedGamesRule),
+        Box::new(StorageSenseRule),
+        Box::new(RestartRule),
+        Box::new(GpuDriverRule),
+        Box::new(MemoryPressureRule),
     ]
+}
+
+/// Marks protected startup items and attaches what the bloat DB knows, so the Startup page can show
+/// every item with the right switch (protected ones are shown but can't be switched off).
+pub fn annotate(s: &mut Snapshot, db: &BloatDb) {
+    for i in &mut s.startup {
+        if let Some(e) = db.lookup(Kind::Startup, &format!("{} {}", i.name, i.command)) {
+            i.protected = e.verdict == Verdict::Keep;
+            i.note = Some(e.reason.clone());
+        }
+    }
 }
 
 fn finding(id: String, category: Category, title: String) -> Finding {
@@ -173,6 +194,10 @@ impl Rule for PowerPlanRule {
             return vec![];
         };
         if plan.guid != power::BALANCED {
+            return vec![];
+        }
+        // PCs with Windows 11 power modes are tuned with the mode (PowerModeRule), not the plan.
+        if s.power_mode.is_some() {
             return vec![];
         }
         // Modern Standby PCs often have no High performance plan; don't offer a fix that fails.
@@ -486,6 +511,292 @@ impl Rule for SuggestionsRule {
             reversible: true,
         });
         f.advice = Some("Apps already installed stay until you remove them.".into());
+        vec![f]
+    }
+}
+
+fn gb(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
+}
+
+pub struct PowerModeRule;
+impl Rule for PowerModeRule {
+    fn id(&self) -> &'static str {
+        "power-mode"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        // Never push performance on a laptop running on battery; dual-CCD X3D parts need Balanced.
+        if (s.is_laptop && s.on_battery) || power::is_dual_ccd_x3d(&s.cpu_name) {
+            return vec![];
+        }
+        let Some(mode) = &s.power_mode else {
+            return vec![];
+        };
+        if s.active_power_plan.as_ref().map(|p| p.guid.as_str()) != Some(power::BALANCED)
+            || mode == power::MODE_BEST_PERFORMANCE
+        {
+            return vec![];
+        }
+        let mut f = finding(
+            "power:mode".into(),
+            Category::Power,
+            format!("Power mode is {}", power::mode_name(mode)),
+        );
+        f.why = "Windows 11's power mode decides how quickly the CPU ramps up. Best performance keeps it ready for games, at the cost of more power and heat while plugged in.".into();
+        f.evidence = vec![format!(
+            "Power mode on mains power: {} ({mode})",
+            power::mode_name(mode)
+        )];
+        f.confidence = Confidence::Low;
+        f.priority = 0.6;
+        f.fix = Some(FixPlan {
+            steps: vec![FixStep::SetPowerMode {
+                guid: power::MODE_BEST_PERFORMANCE.into(),
+            }],
+            reversible: true,
+        });
+        f.advice = Some(if s.is_laptop {
+            "Applies when plugged in. Battery mode is left alone.".into()
+        } else {
+            "The effect is often small. Undo it from History if you see no difference.".into()
+        });
+        vec![f]
+    }
+}
+
+pub struct HagsRule;
+impl Rule for HagsRule {
+    fn id(&self) -> &'static str {
+        "hags"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        if s.hags != Some(false) {
+            return vec![];
+        }
+        let mut f = finding(
+            "gaming:hags".into(),
+            Category::Gaming,
+            "Hardware-accelerated GPU scheduling is off".into(),
+        );
+        f.why = "Lets the graphics card manage its own memory and work queue. It can lower latency slightly and is required for DLSS Frame Generation. Effects vary by game and driver.".into();
+        f.evidence = vec![format!("HKLM\\{GRAPHICS_DRIVERS}\\HwSchMode = 1")];
+        f.risk = Risk::Caution;
+        f.confidence = Confidence::Low;
+        f.priority = 0.5;
+        f.fix = Some(FixPlan {
+            steps: vec![FixStep::SetRegistryDword {
+                hive: Hive::Hklm,
+                key: GRAPHICS_DRIVERS.into(),
+                name: "HwSchMode".into(),
+                value: 2,
+            }],
+            reversible: true,
+        });
+        f.advice = Some("Takes effect after a restart. Older graphics cards ignore it.".into());
+        vec![f]
+    }
+}
+
+pub struct WindowedGamesRule;
+impl Rule for WindowedGamesRule {
+    fn id(&self) -> &'static str {
+        "windowed-games"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        // None: the collector couldn't read DirectX preferences (e.g. not Windows).
+        let Some(prefs) = s.dx_user_prefs.clone() else {
+            return vec![];
+        };
+        if dx_pref(&prefs, "SwapEffectUpgradeEnable").as_deref() == Some("1") {
+            return vec![];
+        }
+        let mut f = finding(
+            "gaming:windowed".into(),
+            Category::Gaming,
+            "Optimizations for windowed games are off".into(),
+        );
+        f.why = "Windows can present older DirectX games running in a window or borderless window the same way as full screen, which lowers input latency and allows variable refresh rate.".into();
+        f.evidence = vec![format!(
+            "{DIRECTX_PREFS}\\{DIRECTX_PREFS_VALUE} = {:?}",
+            prefs
+        )];
+        f.confidence = Confidence::Medium;
+        f.priority = 0.7;
+        f.fix = Some(FixPlan {
+            steps: vec![FixStep::SetRegistryString {
+                hive: Hive::Hkcu,
+                key: DIRECTX_PREFS.into(),
+                name: DIRECTX_PREFS_VALUE.into(),
+                value: with_dx_pref(&prefs, "SwapEffectUpgradeEnable", "1"),
+            }],
+            reversible: true,
+        });
+        f.advice = Some("Same switch as Settings > Display > Graphics > Optimizations for windowed games. Applies the next time a game starts.".into());
+        vec![f]
+    }
+}
+
+pub struct StorageSenseRule;
+impl Rule for StorageSenseRule {
+    fn id(&self) -> &'static str {
+        "storage-sense"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        if s.storage_sense != Some(false) {
+            return vec![];
+        }
+        let mut f = finding(
+            "storage:sense".into(),
+            Category::Storage,
+            "Storage Sense is off".into(),
+        );
+        f.why = "Storage Sense is Windows' own automatic cleanup. It deletes old temporary files and empties the Recycle Bin on a schedule, so the drive doesn't slowly fill up.".into();
+        f.evidence = vec![format!("{STORAGE_SENSE}\\01 = 0")];
+        f.priority = 0.5;
+        f.fix = Some(FixPlan {
+            steps: vec![FixStep::SetRegistryDword {
+                hive: Hive::Hkcu,
+                key: STORAGE_SENSE.into(),
+                name: "01".into(),
+                value: 1,
+            }],
+            reversible: true,
+        });
+        f.advice = Some(
+            "Uses Windows' default schedule. Adjust it in Settings > System > Storage.".into(),
+        );
+        vec![f]
+    }
+}
+
+pub struct RestartRule;
+impl Rule for RestartRule {
+    fn id(&self) -> &'static str {
+        "restart"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        if s.reboot_pending {
+            let mut f = finding(
+                "system:reboot-pending".into(),
+                Category::System,
+                "A restart is waiting to finish updates".into(),
+            );
+            f.why = "Windows Update has installed changes that only take effect after a restart. Until then, updated drivers and fixes aren't fully in use.".into();
+            f.evidence = vec!["Windows Update reports that a restart is required".into()];
+            f.priority = 0.9;
+            f.advice = Some("Save your work and restart when it suits you.".into());
+            return vec![f];
+        }
+        if s.uptime_hours >= 7 * 24 {
+            let days = s.uptime_hours / 24;
+            let mut f = finding(
+                "system:uptime".into(),
+                Category::System,
+                format!("This PC hasn't restarted in {days} days"),
+            );
+            f.why = "Shutting down with Fast Startup doesn't fully reset Windows, so memory leaks and stuck background work can build up. A restart clears them.".into();
+            f.evidence = vec![format!("Up for {days} days")];
+            f.confidence = Confidence::Medium;
+            f.priority = 0.4;
+            f.advice = Some("Use Restart rather than Shut down; it always starts fresh.".into());
+            return vec![f];
+        }
+        vec![]
+    }
+}
+
+/// Days between two YYYY-MM-DD dates (b - a), if both parse.
+pub fn days_between(a: &str, b: &str) -> Option<i64> {
+    fn days(d: &str) -> Option<i64> {
+        let mut it = d.split('-').map(|x| x.parse::<i64>().ok());
+        let (y, m, d) = (it.next()??, it.next()??, it.next()??);
+        // Days from civil (Howard Hinnant's algorithm).
+        let y = if m <= 2 { y - 1 } else { y };
+        let era = y.div_euclid(400);
+        let yoe = y - era * 400;
+        let mp = (m + 9) % 12;
+        let doy = (153 * mp + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        Some(era * 146_097 + doe)
+    }
+    Some(days(b)? - days(a)?)
+}
+
+pub struct GpuDriverRule;
+impl Rule for GpuDriverRule {
+    fn id(&self) -> &'static str {
+        "gpu-driver"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        s.gpu_drivers
+            .iter()
+            .filter_map(|g| {
+                let date = g.date.as_deref()?;
+                let age = days_between(date, &s.scan_date)?;
+                if age < 180 {
+                    return None;
+                }
+                let l = g.name.to_lowercase();
+                let link = if l.contains("nvidia") {
+                    "https://www.nvidia.com/drivers"
+                } else if l.contains("amd") || l.contains("radeon") {
+                    "https://www.amd.com/en/support/download/drivers.html"
+                } else if l.contains("intel") {
+                    "https://www.intel.com/content/www/us/en/support/detect.html"
+                } else {
+                    return None;
+                };
+                let mut f = finding(
+                    format!("driver:gpu:{}", g.name),
+                    Category::Drivers,
+                    format!("Graphics driver is {} months old", age / 30),
+                );
+                f.why = "Graphics drivers often bring fixes and speed-ups for recent games. Laptop makers sometimes ship their own versions, so check theirs first on a laptop.".into();
+                f.evidence = vec![format!("{}: version {}, dated {date}", g.name, g.version)];
+                f.confidence = Confidence::Medium;
+                f.priority = 0.8;
+                f.advice = Some(format!(
+                    "Download the current driver from the official site: {link}. Forge doesn't install drivers for you."
+                ));
+                Some(f)
+            })
+            .collect()
+    }
+}
+
+pub struct MemoryPressureRule;
+impl Rule for MemoryPressureRule {
+    fn id(&self) -> &'static str {
+        "memory-pressure"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        if s.ram_total_mb == 0 || s.ram_used_mb * 100 < s.ram_total_mb * 85 {
+            return vec![];
+        }
+        let pct = s.ram_used_mb * 100 / s.ram_total_mb;
+        let mut f = finding(
+            "memory:pressure".into(),
+            Category::Memory,
+            format!("Memory is {pct}% full"),
+        );
+        f.why = "When memory is nearly full, Windows moves data to the disk and everything slows down, games included.".into();
+        f.evidence = std::iter::once(format!(
+            "{} of {} in use",
+            gb(s.ram_used_mb * 1_048_576),
+            gb(s.ram_total_mb * 1_048_576)
+        ))
+        .chain(
+            s.top_memory
+                .iter()
+                .map(|p| format!("{}: {} MB", p.name, p.memory_mb)),
+        )
+        .collect();
+        f.confidence = Confidence::Medium;
+        f.priority = 1.1;
+        f.advice = Some(
+            "Close the apps you aren't using, especially browsers with many tabs, before you play."
+                .into(),
+        );
         vec![f]
     }
 }

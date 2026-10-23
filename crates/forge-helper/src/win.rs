@@ -200,6 +200,41 @@ fn filetime_now() -> u64 {
     ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64
 }
 
+/// Sets the Windows power mode (the Settings > Power slider) through powrprof's
+/// `PowerSetActiveOverlayScheme`, the same call Settings uses. It isn't in the SDK headers, so it is
+/// looked up at run time and a missing export is a clean failure.
+fn set_power_mode(guid: &str) -> Result<(), String> {
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    let parsed = parse_guid(guid).ok_or("not a power mode id")?;
+    let dll: Vec<u16> = "powrprof.dll".encode_utf16().chain([0]).collect();
+    unsafe {
+        let module = LoadLibraryW(dll.as_ptr());
+        if module.is_null() {
+            return Err("Windows power settings are unavailable.".into());
+        }
+        let Some(f) = GetProcAddress(module, c"PowerSetActiveOverlayScheme".as_ptr().cast()) else {
+            return Err("This version of Windows can't change the power mode.".into());
+        };
+        // DWORD PowerSetActiveOverlayScheme(GUID OverlaySchemeGuid): the GUID is passed by value.
+        let set: unsafe extern "system" fn(windows_sys::core::GUID) -> u32 = std::mem::transmute(f);
+        match set(parsed) {
+            0 => Ok(()),
+            code => Err(format!(
+                "Windows refused to change the power mode (error {code})."
+            )),
+        }
+    }
+}
+
+fn parse_guid(s: &str) -> Option<windows_sys::core::GUID> {
+    let hex: String = s.chars().filter(|c| *c != '-').collect();
+    if hex.len() != 32 || !forge_core::power::is_guid(s) {
+        return None;
+    }
+    let n = u128::from_str_radix(&hex, 16).ok()?;
+    Some(windows_sys::core::GUID::from_u128(n))
+}
+
 fn powercfg(args: &[&str]) -> Result<String, String> {
     let out = std::process::Command::new("powercfg")
         .args(args)
@@ -252,6 +287,10 @@ impl Executor for WinExec {
                     bytes: self.read_raw(hive, key, name).map(|v| v.bytes.to_vec()),
                 }
             }
+            FixStep::SetPowerMode { .. } => Prior::PowerMode {
+                guid: forge_scan::read_power_mode()
+                    .ok_or("This PC doesn't use Windows power modes, so nothing was changed.")?,
+            },
             FixStep::SetPowerPlan { .. } => {
                 let guid = forge_scan::read_active_plan()
                     .or_else(|| {
@@ -275,7 +314,9 @@ impl Executor for WinExec {
                     FixStep::SetRegistryDword { .. } => false,
                     _ => matches!(
                         forge_core::ipc::reg_rule(*hive, key, name).map(|r| r.allowed),
-                        Some(forge_core::ipc::Allowed::DigitText)
+                        Some(
+                            forge_core::ipc::Allowed::DigitText | forge_core::ipc::Allowed::DxPrefs
+                        )
                     ),
                 };
                 match (self.read_raw(*hive, key, name), wants_text) {
@@ -334,6 +375,7 @@ impl Executor for WinExec {
                 }
             }
             FixStep::SetPowerPlan { guid } => powercfg(&["/setactive", guid]).map(|_| ()),
+            FixStep::SetPowerMode { guid } => set_power_mode(guid),
             FixStep::SetRegistryDword {
                 hive,
                 key,

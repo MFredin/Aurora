@@ -168,3 +168,20 @@ fn collect_works_on_this_machine() {
         "second sample refreshes only the known tree"
     );
 }
+
+#[test]
+fn dates() {
+    assert_eq!(parse::civil_date(0), "1970-01-01");
+    assert_eq!(parse::civil_date(1_792_713_600), "2026-10-23");
+    assert_eq!(parse::civil_date(951_782_400), "2000-02-29");
+    assert_eq!(
+        parse::driver_date("1-14-2026").as_deref(),
+        Some("2026-01-14")
+    );
+    assert_eq!(
+        parse::driver_date("12-1-2023").as_deref(),
+        Some("2023-12-01")
+    );
+    assert_eq!(parse::driver_date("garbage"), None);
+    assert_eq!(parse::driver_date("13-1-2023"), None);
+}

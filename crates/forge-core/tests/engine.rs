@@ -1,10 +1,10 @@
 use forge_core::bloat::{BloatDb, Kind, Verdict};
 use forge_core::engine::scan;
-use forge_core::ipc::validate;
+use forge_core::ipc::{is_dx_prefs, validate};
 use forge_core::journal::{self, Entry, Outcome, Prior, Record, Status};
 use forge_core::model::*;
 use forge_core::power;
-use forge_core::rules::{default_rules, friendly_package};
+use forge_core::rules::{annotate, days_between, default_rules, friendly_package};
 use forge_core::snapshot::{Display, Snapshot};
 
 fn run(s: &Snapshot) -> Vec<Finding> {
@@ -27,7 +27,7 @@ fn sample_pc_produces_expected_findings() {
         "startup:Discord",
         "startup:Spotify",
         "startup:AdobeGCInvoker-1.0",
-        "power:plan",
+        "power:mode",
         "ram:xmp",
         "storage:low:C:",
         "appx:king.com.CandyCrushSaga",
@@ -80,9 +80,22 @@ fn advice_only_findings_do_not_sink_to_the_bottom() {
 
 // ---------- power plan ----------
 
+/// The sample PC uses Windows 11 power modes; these tests cover a PC with plans only.
+fn plan_only_pc() -> Snapshot {
+    let mut s = Snapshot::sample_gaming_pc();
+    s.power_mode = None;
+    s
+}
+
+#[test]
+fn power_plan_finding_on_a_pc_without_power_modes() {
+    assert!(ids(&run(&plan_only_pc())).contains(&"power:plan"));
+    assert!(!ids(&run(&Snapshot::sample_gaming_pc())).contains(&"power:plan"));
+}
+
 #[test]
 fn no_high_performance_plan_on_laptop_battery() {
-    let mut s = Snapshot::sample_gaming_pc();
+    let mut s = plan_only_pc();
     s.is_laptop = true;
     s.on_battery = true;
     assert!(!ids(&run(&s)).contains(&"power:plan"));
@@ -90,7 +103,7 @@ fn no_high_performance_plan_on_laptop_battery() {
 
 #[test]
 fn no_high_performance_plan_on_dual_ccd_x3d() {
-    let mut s = Snapshot::sample_gaming_pc();
+    let mut s = plan_only_pc();
     s.cpu_name = "AMD Ryzen 9 7950X3D 16-Core Processor".into();
     assert!(!ids(&run(&s)).contains(&"power:plan"));
     assert!(power::is_dual_ccd_x3d("AMD Ryzen 9 9900X3D"));
@@ -101,14 +114,14 @@ fn no_high_performance_plan_on_dual_ccd_x3d() {
 
 #[test]
 fn no_power_fix_when_high_performance_plan_is_missing() {
-    let mut s = Snapshot::sample_gaming_pc();
+    let mut s = plan_only_pc();
     s.power_plans.retain(|p| p.guid != power::HIGH_PERFORMANCE);
     assert!(!ids(&run(&s)).contains(&"power:plan"));
 }
 
 #[test]
 fn no_power_finding_when_not_on_balanced() {
-    let mut s = Snapshot::sample_gaming_pc();
+    let mut s = plan_only_pc();
     s.active_power_plan = s.power_plans.get(1).cloned();
     assert!(!ids(&run(&s)).contains(&"power:plan"));
 }
@@ -299,6 +312,7 @@ fn entry(id: u64, step: FixStep, prior: Prior) -> Entry {
         step,
         prior,
         undoes: None,
+        group: None,
     }
 }
 
@@ -613,4 +627,177 @@ fn suggestions_fix_turns_off_only_the_switches_that_are_on() {
     }
     s.windows_suggestions_on.clear();
     assert!(!ids(&run(&s)).contains(&"bloat:suggestions"));
+}
+
+// ---------- more optimizations ----------
+
+fn has(s: &Snapshot, id: &str) -> bool {
+    ids(&run(s)).contains(&id)
+}
+
+fn fix_validates(s: &Snapshot, id: &str) {
+    let f = run(s);
+    let x = f
+        .iter()
+        .find(|f| f.id == id)
+        .unwrap_or_else(|| panic!("{id} missing"));
+    for step in &x.fix.as_ref().unwrap().steps {
+        validate(step, &db()).unwrap_or_else(|e| panic!("{id}: {e}"));
+    }
+}
+
+#[test]
+fn power_mode_rule() {
+    let mut s = Snapshot::sample_gaming_pc();
+    assert!(has(&s, "power:mode"));
+    fix_validates(&s, "power:mode");
+    s.power_mode = Some(power::MODE_BEST_PERFORMANCE.into());
+    assert!(!has(&s, "power:mode"));
+    s.power_mode = Some(power::MODE_BALANCED.into());
+    s.is_laptop = true;
+    s.on_battery = true;
+    assert!(!has(&s, "power:mode"), "never on battery");
+    s.on_battery = false;
+    assert!(has(&s, "power:mode"), "laptop plugged in is fine");
+    s.cpu_name = "AMD Ryzen 9 7950X3D".into();
+    assert!(!has(&s, "power:mode"), "dual-CCD X3D keeps Balanced");
+}
+
+#[test]
+fn hags_rule() {
+    let mut s = Snapshot::sample_gaming_pc();
+    assert!(has(&s, "gaming:hags"));
+    fix_validates(&s, "gaming:hags");
+    for v in [Some(true), None] {
+        s.hags = v;
+        assert!(!has(&s, "gaming:hags"));
+    }
+}
+
+#[test]
+fn windowed_games_rule_keeps_other_prefs() {
+    let mut s = Snapshot::sample_gaming_pc();
+    let f = run(&s);
+    let w = f.iter().find(|f| f.id == "gaming:windowed").unwrap();
+    match &w.fix.as_ref().unwrap().steps[0] {
+        FixStep::SetRegistryString { value, .. } => {
+            assert_eq!(value, "VRROptimizeEnable=0;SwapEffectUpgradeEnable=1;")
+        }
+        other => panic!("{other:?}"),
+    }
+    fix_validates(&s, "gaming:windowed");
+    s.dx_user_prefs = Some("SwapEffectUpgradeEnable=1;".into());
+    assert!(!has(&s, "gaming:windowed"));
+    s.dx_user_prefs = None;
+    assert!(!has(&s, "gaming:windowed"));
+    s.dx_user_prefs = Some(String::new());
+    assert!(has(&s, "gaming:windowed"));
+}
+
+#[test]
+fn dx_prefs_validation() {
+    assert!(is_dx_prefs("SwapEffectUpgradeEnable=1;"));
+    assert!(is_dx_prefs("A=1;B=0;"));
+    assert!(is_dx_prefs(""));
+    for bad in ["A=1;B", "A=x;", "A B=1;", "A=1;\"evil\"", "=1;"] {
+        assert!(!is_dx_prefs(bad), "{bad:?}");
+    }
+}
+
+#[test]
+fn storage_sense_rule() {
+    let mut s = Snapshot::sample_gaming_pc();
+    assert!(has(&s, "storage:sense"));
+    fix_validates(&s, "storage:sense");
+    s.storage_sense = Some(true);
+    assert!(!has(&s, "storage:sense"));
+}
+
+#[test]
+fn restart_rules() {
+    let mut s = Snapshot::sample_gaming_pc();
+    assert!(has(&s, "system:reboot-pending"));
+    assert!(!has(&s, "system:uptime"), "pending restart covers it");
+    s.reboot_pending = false;
+    assert!(has(&s, "system:uptime"));
+    s.uptime_hours = 30;
+    assert!(!has(&s, "system:uptime"));
+}
+
+#[test]
+fn gpu_driver_age() {
+    assert_eq!(days_between("2026-01-14", "2026-10-23"), Some(282));
+    assert_eq!(days_between("2024-02-28", "2024-03-01"), Some(2));
+    assert_eq!(days_between("bad", "2026-10-23"), None);
+    let mut s = Snapshot::sample_gaming_pc();
+    let f = run(&s);
+    let d = f.iter().find(|f| f.id.starts_with("driver:gpu:")).unwrap();
+    assert!(d.fix.is_none() && d.advice.as_ref().unwrap().contains("nvidia.com"));
+    s.gpu_drivers[0].date = Some("2026-09-01".into());
+    assert!(!run(&s).iter().any(|f| f.id.starts_with("driver:gpu:")));
+    s.gpu_drivers[0].date = Some("2020-01-01".into());
+    s.gpu_drivers[0].name = "Microsoft Basic Display Adapter".into();
+    assert!(
+        !run(&s).iter().any(|f| f.id.starts_with("driver:gpu:")),
+        "unknown vendor: no link to give"
+    );
+}
+
+#[test]
+fn memory_pressure_rule_lists_top_users() {
+    let mut s = Snapshot::sample_gaming_pc();
+    assert!(!has(&s, "memory:pressure"));
+    s.ram_used_mb = 30_000;
+    let f = run(&s);
+    let m = f.iter().find(|f| f.id == "memory:pressure").unwrap();
+    assert!(m.evidence.iter().any(|e| e.starts_with("chrome")));
+}
+
+#[test]
+fn startup_items_are_annotated() {
+    let mut s = Snapshot::sample_gaming_pc();
+    annotate(&mut s, &db());
+    let get = |n: &str| s.startup.iter().find(|i| i.name == n).unwrap();
+    assert!(get("SecurityHealth").protected);
+    assert!(get("RtkAudUService").protected);
+    assert!(!get("Discord").protected && get("Discord").note.is_some());
+}
+
+#[test]
+fn grouped_steps_share_a_group_in_history() {
+    let mut a = entry(
+        1,
+        FixStep::SetPowerPlan {
+            guid: power::HIGH_PERFORMANCE.into(),
+        },
+        Prior::PowerPlan {
+            guid: power::BALANCED.into(),
+        },
+    );
+    a.group = Some(77);
+    let mut b = a.clone();
+    b.id = 2;
+    let h = journal::history(&[Record::Intent(a), Record::Intent(b)]);
+    assert!(h.iter().all(|i| i.group == Some(77)));
+}
+
+#[test]
+fn power_mode_inverse() {
+    let e = entry(
+        4,
+        FixStep::SetPowerMode {
+            guid: power::MODE_BEST_PERFORMANCE.into(),
+        },
+        Prior::PowerMode {
+            guid: power::MODE_BALANCED.into(),
+        },
+    );
+    let inv = journal::inverse(&e).unwrap();
+    assert_eq!(
+        inv,
+        FixStep::SetPowerMode {
+            guid: power::MODE_BALANCED.into()
+        }
+    );
+    validate(&inv, &db()).unwrap();
 }

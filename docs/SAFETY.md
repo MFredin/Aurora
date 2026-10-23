@@ -33,7 +33,7 @@ change that touches the system must clear.
 - Installing drivers or software on the user's behalf.
 - Telemetry that leaves the machine without explicit opt-in.
 - Recommending that Memory integrity (HVCI/VBS) or other security features be turned off, even as advice.
-- Irreversible operations other than app removal, which is limited to apps the DB marks safe and always labelled as not undoable (ADR-014).
+- Irreversible operations other than app removal (only apps the DB marks safe, ADR-014) and cleanup of the user's own temp files and Recycle Bin (unelevated, no links followed, ADR-015). Both are always labelled as not undoable.
 
 ## Review checklist for any PR that touches the system
 

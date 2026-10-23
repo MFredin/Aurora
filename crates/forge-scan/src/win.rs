@@ -3,7 +3,7 @@
 use crate::{parse, smbios};
 use forge_core::ipc;
 use forge_core::model::{Hive, StartupLocation};
-use forge_core::snapshot::{DiskKind, Display, PowerPlan, Snapshot, StartupItem};
+use forge_core::snapshot::{DiskKind, Display, GpuDriver, PowerPlan, Snapshot, StartupItem};
 use std::path::PathBuf;
 use winreg::RegKey;
 use winreg::enums::*;
@@ -15,7 +15,17 @@ const POWER_SCHEMES: &str = r"SYSTEM\CurrentControlSet\Control\Power\User\PowerS
 pub fn fill(s: &mut Snapshot) {
     s.startup = read_startup();
     s.appx = read_appx();
-    s.gpus = parse::clean_gpus(read_gpus());
+    let drivers = read_gpu_drivers();
+    s.gpus = parse::clean_gpus(drivers.iter().map(|g| g.name.clone()).collect());
+    s.gpu_drivers = drivers
+        .into_iter()
+        .filter(|g| s.gpus.contains(&g.name))
+        .fold(vec![], |mut acc: Vec<GpuDriver>, g| {
+            if !acc.iter().any(|a| a.name == g.name) {
+                acc.push(g);
+            }
+            acc
+        });
     s.displays = read_displays();
     let (plans, active) = read_power_plans();
     s.active_power_plan = active.and_then(|g| plans.iter().find(|p| p.guid == g).cloned());
@@ -37,6 +47,27 @@ pub fn fill(s: &mut Snapshot) {
         .filter(|n| read_dword(Hive::Hkcu, ipc::CONTENT_DELIVERY, n) == Some(1))
         .map(|n| n.to_string())
         .collect();
+    s.storage_sense = read_dword(Hive::Hkcu, ipc::STORAGE_SENSE, "01").map(|v| v == 1);
+    s.hags = match read_dword(Hive::Hklm, ipc::GRAPHICS_DRIVERS, "HwSchMode") {
+        Some(2) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    };
+    s.dx_user_prefs = Some(
+        read_text(Hive::Hkcu, ipc::DIRECTX_PREFS, ipc::DIRECTX_PREFS_VALUE).unwrap_or_default(),
+    );
+    s.power_mode = read_power_mode();
+    s.reboot_pending = [
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+    ]
+    .iter()
+    .any(|k| {
+        RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey_with_flags(k, KEY_READ)
+            .is_ok()
+    });
+    s.recycle_bin_bytes = recycle_bin_bytes();
     for d in &mut s.disks {
         if let Some(k) = disk_kind(&d.mount) {
             d.kind = k;
@@ -117,6 +148,8 @@ fn read_startup() -> Vec<StartupItem> {
                 name,
                 command,
                 location: loc,
+                protected: false,
+                note: None,
             });
         }
     }
@@ -170,7 +203,7 @@ fn read_appx() -> Vec<String> {
     names
 }
 
-fn read_gpus() -> Vec<String> {
+fn read_gpu_drivers() -> Vec<GpuDriver> {
     let class = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
     let Ok(k) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(class, KEY_READ) else {
         return vec![];
@@ -179,10 +212,17 @@ fn read_gpus() -> Vec<String> {
         .flatten()
         .filter(|n| n.chars().all(|c| c.is_ascii_digit()))
         .filter_map(|n| {
-            k.open_subkey(&n)
-                .ok()?
-                .get_value::<String, _>("DriverDesc")
-                .ok()
+            let sub = k.open_subkey(&n).ok()?;
+            Some(GpuDriver {
+                name: sub.get_value::<String, _>("DriverDesc").ok()?,
+                version: sub
+                    .get_value::<String, _>("DriverVersion")
+                    .unwrap_or_default(),
+                date: sub
+                    .get_value::<String, _>("DriverDate")
+                    .ok()
+                    .and_then(|d| parse::driver_date(&d)),
+            })
         })
         .collect()
 }
@@ -215,6 +255,61 @@ fn read_power_plans() -> (Vec<PowerPlan>, Option<String>) {
         })
         .collect();
     (plans, active)
+}
+
+/// Windows 11 power mode on mains power. Windows 11 always offers power modes with the Balanced
+/// plan; an absent value means the default (Balanced). None on Windows 10 and earlier.
+pub fn read_power_mode() -> Option<String> {
+    let build: u32 = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", KEY_READ)
+        .ok()?
+        .get_value::<String, _>("CurrentBuildNumber")
+        .ok()?
+        .parse()
+        .ok()?;
+    if build < 22000 {
+        return None;
+    }
+    let mode = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(POWER_SCHEMES, KEY_READ)
+        .ok()
+        .and_then(|k| k.get_value::<String, _>("ActiveOverlayAcPowerScheme").ok())
+        .map(|g| g.to_lowercase())
+        .filter(|g| forge_core::power::is_guid(g));
+    Some(mode.unwrap_or_else(|| forge_core::power::MODE_BALANCED.to_string()))
+}
+
+fn recycle_bin_bytes() -> Option<u64> {
+    use windows_sys::Win32::UI::Shell::{SHQUERYRBINFO, SHQueryRecycleBinW};
+    let mut info = SHQUERYRBINFO {
+        cbSize: std::mem::size_of::<SHQUERYRBINFO>() as u32,
+        ..Default::default()
+    };
+    (unsafe { SHQueryRecycleBinW(std::ptr::null(), &mut info) } == 0)
+        .then(|| u64::try_from(info.i64Size).unwrap_or(0))
+}
+
+/// Empties the signed-in user's Recycle Bin on every drive, without prompts.
+pub fn empty_recycle_bin() -> Result<(), String> {
+    use windows_sys::Win32::UI::Shell::{
+        SHERB_NOCONFIRMATION, SHERB_NOPROGRESSUI, SHERB_NOSOUND, SHEmptyRecycleBinW,
+    };
+    let hr = unsafe {
+        SHEmptyRecycleBinW(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND,
+        )
+    };
+    // S_OK, or E_UNEXPECTED when the bin was already empty.
+    if hr == 0 || hr as u32 == 0x8000_FFFF {
+        Ok(())
+    } else {
+        Err(format!(
+            "Windows could not empty the Recycle Bin (0x{:08X}).",
+            hr as u32
+        ))
+    }
 }
 
 /// The active power plan GUID. Used by the helper to record what to restore.

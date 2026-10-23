@@ -88,6 +88,29 @@ pub fn best_refresh(width: u32, height: u32, modes: &[(u32, u32, u32)]) -> Optio
         .max()
 }
 
+/// "YYYY-MM-DD" (UTC) for a Unix time.
+pub fn civil_date(unix_secs: u64) -> String {
+    // Civil from days (Howard Hinnant's algorithm).
+    let z = (unix_secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Driver dates in the registry look like "1-14-2026" (M-D-YYYY). Returns "2026-01-14".
+pub fn driver_date(raw: &str) -> Option<String> {
+    let mut it = raw.trim().split('-').map(|p| p.parse::<u32>().ok());
+    let (m, d, y) = (it.next()??, it.next()??, it.next()??);
+    ((1..=12).contains(&m) && (1..=31).contains(&d) && y > 1990)
+        .then(|| format!("{y:04}-{m:02}-{d:02}"))
+}
+
 /// Bytes to GB the way Explorer shows them (1024^3).
 pub fn gib(bytes: u64) -> u64 {
     bytes / (1024 * 1024 * 1024)

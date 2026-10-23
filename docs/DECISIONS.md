@@ -81,6 +81,18 @@ Add new entries at the bottom. Format: context, decision, consequences. Mark sup
 - **Decision:** `RemoveAppx { package_name }` uninstalls an app for the signed-in user through the Windows package manager (WinRT `PackageManager`, via the `windows` crate already in the dependency tree). The helper allows it only for apps the bloat DB marks `safe` (never `keep`, never unknown apps), only when the elevated account is the app's user, and journals the full package name first. It is the one irreversible step: the plan says `reversible: false`, the button reads "Remove app", it is never in the low-risk batch, and History says to reinstall from the Store. Settings fixes are typed registry writes on an explicit per-user allowlist with allowed values: Game Mode, mouse acceleration (three text values, digits only), Game Bar background recording, and six Windows suggestion / promoted-app switches. All are undoable.
 - **Consequences:** Windows feature updates can reinstall some inbox apps; turning off promoted-app installs reduces that. Curating the app list (BLOAT-DB.md) now matters more, because entries cause real removals.
 
+## ADR-015. More optimizations: power mode, GPU scheduling, windowed games, Storage Sense, startup switches, cleanup
+
+- **Context:** the owner found v0.1 too bare and asked for more that actually helps a PC run better, without breaking the rules on placebo (ADR-005) and safety.
+- **Decision:**
+  - `SetPowerMode { guid }` sets the Windows 11 power mode (Best performance / Balanced / Best power efficiency) through `PowerSetActiveOverlayScheme`. Only the three known GUIDs pass `ipc::validate`; the prior mode is journaled. On Windows 11 the power mode, not the classic plan, is what the Settings app shows, so the plan rule stays quiet when a power mode is readable. Not offered on battery.
+  - New allowlisted registry values: hardware-accelerated GPU scheduling (`HwSchMode` 1/2, HKLM, "Check first", needs a restart), "Optimizations for windowed games" (`SwapEffectUpgradeEnable` inside `DirectXUserGlobalSettings`; the helper edits only that key=value pair and keeps the rest of the string), and Storage Sense (`StorageSense\Parameters\StoragePolicy\01`). All undoable.
+  - Startup page: a switch per startup item (same effect as Task Manager). Windows, security and driver entries the bloat DB marks `keep` are shown as "Kept on" and cannot be switched.
+  - Steps applied together share a journal `group`; History and undo treat them as one change.
+  - Cleanup: temporary files older than a day in the user's temp folder, and emptying the Recycle Bin. Both run **unelevated** in the app (the user can already delete these files), never follow links or reparse points, skip files in use, and are labelled as not undoable. They are not `FixStep`s and are not journaled; the result is shown as a count and size.
+  - Advice only: restart when a reboot is pending or the PC has been up 7+ days, GPU driver older than 180 days (link to the vendor, no download), memory over 85% in use (lists the five largest processes).
+- **Consequences:** a second class of irreversible action (deleting temp files, emptying the Recycle Bin), both limited to files the user owns and asked to remove. No services, no "RAM cleaning", no driver installs.
+
 ## Open questions
 
 1. **Product name.** "Forge" is a placeholder; the repository is named Aurora. Needs a name, domain and trademark check before any public build.

@@ -19,6 +19,9 @@ pub enum Prior {
     PowerPlan {
         guid: String,
     },
+    PowerMode {
+        guid: String,
+    },
     Dword {
         existed: bool,
         value: u32,
@@ -44,6 +47,10 @@ pub struct Entry {
     /// Set when this entry is itself the undo of another entry.
     #[serde(default)]
     pub undoes: Option<u64>,
+    /// Steps applied together (one fix with several steps) share a group, so History shows them
+    /// as one change and undoes them together.
+    #[serde(default)]
+    pub group: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -84,6 +91,7 @@ pub struct Item {
     pub step: FixStep,
     pub status: Status,
     pub undoable: bool,
+    pub group: Option<u64>,
 }
 
 /// The step that reverses `e`, or None if there is nothing to reverse.
@@ -100,6 +108,9 @@ pub fn inverse(e: &Entry) -> Option<FixStep> {
         }),
         (FixStep::SetPowerPlan { .. }, Prior::PowerPlan { guid }) => {
             Some(FixStep::SetPowerPlan { guid: guid.clone() })
+        }
+        (FixStep::SetPowerMode { .. }, Prior::PowerMode { guid }) => {
+            Some(FixStep::SetPowerMode { guid: guid.clone() })
         }
         (
             FixStep::SetRegistryDword {
@@ -217,6 +228,7 @@ pub fn history(records: &[Record]) -> Vec<Item> {
             title: e.title,
             step: e.step,
             status,
+            group: e.group,
         })
         .collect()
 }

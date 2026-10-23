@@ -1,4 +1,5 @@
 //! Collectors. `collect()` gathers a Snapshot using cheap OS reads only.
+pub mod cleanup;
 pub mod parse;
 pub mod smbios;
 #[cfg(windows)]
@@ -22,7 +23,7 @@ impl BackgroundGuard {
 }
 
 #[cfg(windows)]
-pub use win::read_active_plan;
+pub use win::{empty_recycle_bin, read_active_plan, read_power_mode};
 
 pub fn collect() -> Snapshot {
     let mut sys = System::new();
@@ -65,11 +66,53 @@ pub fn collect() -> Snapshot {
         ram_total_mb: sys.total_memory() / 1_048_576,
         ram_used_mb: sys.used_memory() / 1_048_576,
         disks,
+        uptime_hours: System::uptime() / 3600,
+        scan_date: parse::civil_date(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs()),
+        ),
+        top_memory: top_memory(5),
+        temp_bytes: Some(cleanup::measure(&cleanup::temp_dir(), cleanup::MIN_AGE).bytes),
         ..Default::default()
     };
     #[cfg(windows)]
     win::fill(&mut snap);
     snap
+}
+
+/// The apps using the most memory right now, summed over their processes (browsers run many).
+fn top_memory(n: usize) -> Vec<forge_core::snapshot::ProcessUse> {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_memory()
+            .with_exe(UpdateKind::Never),
+    );
+    let mut by_name: std::collections::HashMap<String, u64> = Default::default();
+    for p in sys.processes().values() {
+        let name = p.name().to_string_lossy();
+        let name = name.strip_suffix(".exe").unwrap_or(&name).to_string();
+        *by_name.entry(name).or_default() += p.memory();
+    }
+    let mut v: Vec<_> = by_name
+        .into_iter()
+        .filter(|(n, _)| {
+            !matches!(
+                n.as_str(),
+                "System" | "Registry" | "Memory Compression" | "MemCompression"
+            )
+        })
+        .map(|(name, bytes)| forge_core::snapshot::ProcessUse {
+            name,
+            memory_mb: bytes / 1_048_576,
+        })
+        .collect();
+    v.sort_by_key(|p| std::cmp::Reverse(p.memory_mb));
+    v.truncate(n);
+    v
 }
 
 /// Resource use of Forge itself, including its child processes (the WebView2 renderer and

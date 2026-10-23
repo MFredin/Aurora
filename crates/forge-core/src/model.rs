@@ -12,6 +12,7 @@ pub enum Category {
     Drivers,
     Thermal,
     Gaming,
+    System,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -94,6 +95,10 @@ pub enum FixStep {
         prior: Option<Vec<u8>>,
     },
     SetPowerPlan {
+        guid: String,
+    },
+    /// Windows 11 power mode on mains power (Settings > System > Power > Power mode).
+    SetPowerMode {
         guid: String,
     },
     SetRegistryDword {

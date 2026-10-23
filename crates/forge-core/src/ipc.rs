@@ -14,6 +14,9 @@ pub enum Request {
         finding_id: String,
         title: String,
         step: FixStep,
+        /// Shared by every step of one fix, so they are shown and undone together.
+        #[serde(default)]
+        group: Option<u64>,
     },
     /// Reverse an earlier change. The helper reads its own journal to work out the inverse; the
     /// app never sends the inverse step itself.
@@ -60,6 +63,8 @@ pub enum Allowed {
     Dword(&'static [u32]),
     /// Short decimal text, e.g. the mouse threshold values ("0", "6", "10").
     DigitText,
+    /// DirectX user preferences: "Key=digits;" pairs only.
+    DxPrefs,
 }
 
 /// One registry value the helper may write, and the values it may set.
@@ -88,6 +93,12 @@ pub const SUGGESTION_VALUES: [&str; 6] = [
 ];
 
 pub const MOUSE_VALUES: [&str; 3] = ["MouseSpeed", "MouseThreshold1", "MouseThreshold2"];
+
+pub const GRAPHICS_DRIVERS: &str = r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers";
+pub const STORAGE_SENSE: &str =
+    r"Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy";
+pub const DIRECTX_PREFS: &str = r"Software\Microsoft\DirectX\UserGpuPreferences";
+pub const DIRECTX_PREFS_VALUE: &str = "DirectXUserGlobalSettings";
 
 const fn dword(key: &'static str, name: &'static str) -> RegRule {
     RegRule {
@@ -124,7 +135,58 @@ pub const REG_ALLOWLIST: &[RegRule] = &[
     dword(CONTENT_DELIVERY, SUGGESTION_VALUES[3]),
     dword(CONTENT_DELIVERY, SUGGESTION_VALUES[4]),
     dword(CONTENT_DELIVERY, SUGGESTION_VALUES[5]),
+    // Storage Sense (automatic cleanup of temp files and the Recycle Bin).
+    dword(STORAGE_SENSE, "01"),
+    // "Optimizations for windowed games" lives in this preferences string.
+    RegRule {
+        hive: Hive::Hkcu,
+        key: DIRECTX_PREFS,
+        name: DIRECTX_PREFS_VALUE,
+        allowed: Allowed::DxPrefs,
+    },
+    // Hardware-accelerated GPU scheduling: 1 off, 2 on. Machine-wide, takes effect after restart.
+    RegRule {
+        hive: Hive::Hklm,
+        key: GRAPHICS_DRIVERS,
+        name: "HwSchMode",
+        allowed: Allowed::Dword(&[1, 2]),
+    },
 ];
+
+/// True for a DirectX preferences string made only of "Key=digits;" pairs.
+pub fn is_dx_prefs(v: &str) -> bool {
+    v.len() <= 400
+        && v.split(';').filter(|p| !p.is_empty()).all(|pair| {
+            pair.split_once('=').is_some_and(|(k, val)| {
+                !k.is_empty()
+                    && k.len() <= 48
+                    && k.chars().all(|c| c.is_ascii_alphanumeric())
+                    && !val.is_empty()
+                    && val.len() <= 4
+                    && val.chars().all(|c| c.is_ascii_digit())
+            })
+        })
+}
+
+/// Reads one key from a DirectX preferences string ("A=1;B=0;").
+pub fn dx_pref(prefs: &str, key: &str) -> Option<String> {
+    prefs
+        .split(';')
+        .filter_map(|p| p.split_once('='))
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v.to_string())
+}
+
+/// Sets one key in a DirectX preferences string, keeping the others.
+pub fn with_dx_pref(prefs: &str, key: &str, value: &str) -> String {
+    let mut out: Vec<String> = prefs
+        .split(';')
+        .filter(|p| !p.is_empty() && p.split_once('=').is_none_or(|(k, _)| k != key))
+        .map(String::from)
+        .collect();
+    out.push(format!("{key}={value}"));
+    out.join(";") + ";"
+}
 
 pub const MAX_NAME: usize = 260;
 pub const MAX_APPROVED_BYTES: usize = 64;
@@ -182,9 +244,12 @@ pub fn validate(step: &FixStep, db: &BloatDb) -> Result<(), String> {
             {
                 Ok(())
             }
+            Some(Allowed::DxPrefs) if is_dx_prefs(value) => Ok(()),
             Some(_) => Err(format!("value {value:?} is not allowed for {key}\\{name}")),
             None => Err(not_listed(key, name)),
         },
+        FixStep::SetPowerMode { guid } if power::is_guid(guid) => Ok(()),
+        FixStep::SetPowerMode { guid } => Err(format!("not a power mode id: {guid}")),
         FixStep::DeleteRegistryValue { hive, key, name } => match reg_rule(*hive, key, name) {
             Some(_) => Ok(()),
             None => Err(not_listed(key, name)),
@@ -234,6 +299,9 @@ pub fn describe(step: &FixStep) -> String {
         }
         FixStep::RestoreStartupItem { name, .. } => format!("Let {name} start with Windows again"),
         FixStep::SetPowerPlan { guid } => format!("Switch the power plan to {}", power::name(guid)),
+        FixStep::SetPowerMode { guid } => {
+            format!("Set the power mode to {}", power::mode_name(guid))
+        }
         FixStep::SetRegistryDword { name, value, .. } => format!("Set {name} to {value}"),
         FixStep::SetRegistryString { name, value, .. } => format!("Set {name} to {value}"),
         FixStep::DeleteRegistryValue { name, .. } => format!("Remove the {name} setting"),

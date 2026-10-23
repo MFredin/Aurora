@@ -56,13 +56,14 @@ impl Helper<'_> {
                 finding_id,
                 title,
                 step,
+                group,
             } => {
                 if title.len() > 300 || finding_id.len() > 300 {
                     return Response::Rejected {
                         reason: "request too long".into(),
                     };
                 }
-                match self.run(&finding_id, &title, step, None) {
+                match self.run(&finding_id, &title, step, None, group) {
                     Ok((id, None)) => Response::Applied { journal_id: id },
                     Ok((id, Some(warning))) => Response::AppliedWithWarning {
                         journal_id: id,
@@ -90,7 +91,13 @@ impl Helper<'_> {
                     };
                 };
                 let title = format!("Undo: {}", entry.title);
-                match self.run(&entry.finding_id, &title, step, Some(journal_id)) {
+                match self.run(
+                    &entry.finding_id,
+                    &title,
+                    step,
+                    Some(journal_id),
+                    entry.group,
+                ) {
                     Ok(_) => Response::Undone { journal_id },
                     Err(r) => r,
                 }
@@ -106,6 +113,7 @@ impl Helper<'_> {
         title: &str,
         step: FixStep,
         undoes: Option<u64>,
+        group: Option<u64>,
     ) -> Result<(u64, Option<String>), Response> {
         let rejected = |reason: String| Response::Rejected { reason };
         validate(&step, &self.db).map_err(rejected)?;
@@ -130,6 +138,7 @@ impl Helper<'_> {
             step,
             prior,
             undoes,
+            group,
         };
         let id = entry.id;
         // Write-ahead: no journal entry, no change.
@@ -362,6 +371,7 @@ mod tests {
         Request::Apply {
             finding_id: "f".into(),
             title: "Title".into(),
+            group: None,
             step,
         }
     }

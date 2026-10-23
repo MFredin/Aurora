@@ -4,6 +4,20 @@ pub const HIGH_PERFORMANCE: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
 pub const POWER_SAVER: &str = "a1841308-3541-4fab-bc81-f71556f20b4a";
 pub const KNOWN_PLANS: [&str; 3] = [BALANCED, HIGH_PERFORMANCE, POWER_SAVER];
 
+/// Windows 11 power modes (overlays on the Balanced plan), as set in Settings > Power.
+pub const MODE_BEST_EFFICIENCY: &str = "961cc777-2547-4f9d-8174-7d86181b8a7a";
+pub const MODE_BALANCED: &str = "00000000-0000-0000-0000-000000000000";
+pub const MODE_BEST_PERFORMANCE: &str = "ded574b5-45a0-4f42-8737-46345c09c238";
+
+pub fn mode_name(guid: &str) -> &'static str {
+    match guid {
+        MODE_BEST_EFFICIENCY => "Best power efficiency",
+        MODE_BALANCED => "Balanced",
+        MODE_BEST_PERFORMANCE => "Best performance",
+        _ => "another mode",
+    }
+}
+
 /// True for a lowercase or uppercase GUID in 8-4-4-4-12 form.
 pub fn is_guid(s: &str) -> bool {
     let groups: Vec<&str> = s.split('-').collect();

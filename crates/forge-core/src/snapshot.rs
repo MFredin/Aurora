@@ -32,6 +32,25 @@ pub struct Snapshot {
     pub mouse_acceleration: Option<bool>,
     /// Suggestion/promoted-app switches (from `ipc::SUGGESTION_VALUES`) that are explicitly on.
     pub windows_suggestions_on: Vec<String>,
+    /// Bytes in the user's temp folder older than a day (what "Clean up" would remove).
+    pub temp_bytes: Option<u64>,
+    pub recycle_bin_bytes: Option<u64>,
+    /// Storage Sense (automatic cleanup) switched on.
+    pub storage_sense: Option<bool>,
+    /// Windows 11 power mode on mains power (overlay GUID); None when the PC doesn't use power modes.
+    pub power_mode: Option<String>,
+    /// Hardware-accelerated GPU scheduling; None when Windows uses its default.
+    pub hags: Option<bool>,
+    /// The user's DirectX preferences string (holds "Optimizations for windowed games").
+    pub dx_user_prefs: Option<String>,
+    /// Windows Update is waiting for a restart.
+    pub reboot_pending: bool,
+    pub uptime_hours: u64,
+    pub gpu_drivers: Vec<GpuDriver>,
+    /// Date of the scan, YYYY-MM-DD (rules stay pure; the collector supplies "today").
+    pub scan_date: String,
+    /// Biggest memory users right now, by app.
+    pub top_memory: Vec<ProcessUse>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -59,6 +78,26 @@ pub struct StartupItem {
     pub command: String,
     pub location: StartupLocation,
     pub enabled: bool,
+    /// A Windows, security or driver component (bloat DB `keep`). Shown, never switched off.
+    #[serde(default)]
+    pub protected: bool,
+    /// What the bloat DB says about it, if it knows the item.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct GpuDriver {
+    pub name: String,
+    pub version: String,
+    /// Driver date as YYYY-MM-DD, when Windows records one.
+    pub date: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ProcessUse {
+    pub name: String,
+    pub memory_mb: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -86,6 +125,8 @@ impl Snapshot {
             command: c.into(),
             location: l,
             enabled: true,
+            protected: false,
+            note: None,
         };
         let plan = |guid: &str, name: &str| PowerPlan {
             guid: guid.into(),
@@ -164,6 +205,34 @@ impl Snapshot {
             ],
             game_dvr_background: Some(true),
             game_mode: Some(true),
+            temp_bytes: Some(2_300_000_000),
+            recycle_bin_bytes: Some(640_000_000),
+            storage_sense: Some(false),
+            power_mode: Some(crate::power::MODE_BALANCED.into()),
+            hags: Some(false),
+            dx_user_prefs: Some("VRROptimizeEnable=0;".into()),
+            reboot_pending: true,
+            uptime_hours: 9 * 24,
+            gpu_drivers: vec![GpuDriver {
+                name: "NVIDIA GeForce RTX 4070".into(),
+                version: "32.0.15.5612".into(),
+                date: Some("2026-01-14".into()),
+            }],
+            scan_date: "2026-10-23".into(),
+            top_memory: vec![
+                ProcessUse {
+                    name: "chrome".into(),
+                    memory_mb: 3100,
+                },
+                ProcessUse {
+                    name: "Discord".into(),
+                    memory_mb: 640,
+                },
+                ProcessUse {
+                    name: "Steam".into(),
+                    memory_mb: 410,
+                },
+            ],
             mouse_acceleration: Some(true),
             windows_suggestions_on: vec![
                 "SilentInstalledAppsEnabled".into(),
