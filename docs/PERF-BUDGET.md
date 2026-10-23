@@ -82,6 +82,11 @@ Manager), re-lists processes only every tenth sample, and the shell marks WebVie
 the window is minimized, so the page stops polling and WebView2 can throttle. Decision: stay on
 WebView2 (owner, 2026-10-23).
 
+After those fixes (CI run 39972495959, same runner type): WebView2 as shipped 71.3 MB / 0.33% CPU
+focused, 66.9 MB / **0.06% CPU minimized** (was 0.23%); first-ever launch 6.5 s, later launches about
+0.6 s. Minimized CPU is down about 4x but not yet 0%; next step if it matters on real machines is
+`ICoreWebView2_3::TrySuspend` while minimized.
+
 ## The WebView2 question (decide in M1)
 
 WebView2 is already on Windows 11, but it spawns several processes whose memory counts. If the measured
