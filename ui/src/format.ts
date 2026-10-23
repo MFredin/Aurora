@@ -20,19 +20,41 @@ export function planName(guid: string, machine: Machine | null): string {
   return machine?.power_plans.find((p) => p.guid === guid)?.name ?? BUILTIN_PLANS[guid] ?? "another plan";
 }
 
+const SETTING_NAMES: Record<string, string> = {
+  HistoricalCaptureEnabled: "Game Bar background recording",
+  AutoGameModeEnabled: "Game Mode",
+  SilentInstalledAppsEnabled: "automatic installs of promoted apps",
+  SystemPaneSuggestionsEnabled: "suggestions in Start",
+  "SubscribedContent-338388Enabled": "suggested apps in Start",
+  "SubscribedContent-338389Enabled": "tips and tricks notifications",
+  "SubscribedContent-353694Enabled": "suggested content in Settings",
+  "SubscribedContent-353696Enabled": "suggested content in Settings",
+};
+
+const MOUSE_NAMES: Record<string, string> = {
+  MouseSpeed: "mouse acceleration",
+  MouseThreshold1: "the first acceleration threshold",
+  MouseThreshold2: "the second acceleration threshold",
+};
+
+/** "Microsoft.BingNews" -> "Bing News", same rule as the engine's titles. */
+export function friendlyPackage(pkg: string): string {
+  const last = pkg.split(".").pop() ?? pkg;
+  return last.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 export function describeStep(s: FixStep, machine: Machine | null = null): string {
   switch (s.op) {
     case "disable_startup_item": return `Stop ${s.name} from starting with Windows`;
     case "restore_startup_item": return `Let ${s.name} start with Windows again`;
     case "set_power_plan": return `Switch the power plan to ${planName(s.guid, machine)}`;
     case "set_registry_dword":
-      return s.name === "HistoricalCaptureEnabled"
-        ? `Turn ${s.value ? "on" : "off"} Game Bar background recording`
-        : `Set ${s.name} to ${s.value}`;
+      return SETTING_NAMES[s.name] ? `Turn ${s.value ? "on" : "off"} ${SETTING_NAMES[s.name]}` : `Set ${s.name} to ${s.value}`;
+    case "set_registry_string":
+      return MOUSE_NAMES[s.name] ? `${s.value === "0" ? "Turn off" : "Set"} ${MOUSE_NAMES[s.name]}${s.value === "0" ? "" : ` to ${s.value}`}` : `Set ${s.name} to ${s.value}`;
     case "delete_registry_value":
-      return s.name === "HistoricalCaptureEnabled"
-        ? "Put Game Bar background recording back to the Windows default"
-        : `Remove the ${s.name} setting`;
+      return SETTING_NAMES[s.name] ? `Put ${SETTING_NAMES[s.name]} back to the Windows default` : `Remove the ${s.name} setting`;
+    case "remove_appx": return `Uninstall ${friendlyPackage(s.package_name)} for your account`;
   }
 }
 

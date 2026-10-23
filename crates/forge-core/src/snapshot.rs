@@ -26,6 +26,12 @@ pub struct Snapshot {
     pub power_plans: Vec<PowerPlan>,
     /// Game Bar "Record what happened" (background recording).
     pub game_dvr_background: Option<bool>,
+    /// Game Mode switch; `None` when Windows uses its default (on).
+    pub game_mode: Option<bool>,
+    /// "Enhance pointer precision".
+    pub mouse_acceleration: Option<bool>,
+    /// Suggestion/promoted-app switches (from `ipc::SUGGESTION_VALUES`) that are explicitly on.
+    pub windows_suggestions_on: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -157,6 +163,12 @@ impl Snapshot {
                 plan(crate::power::POWER_SAVER, "Power saver"),
             ],
             game_dvr_background: Some(true),
+            game_mode: Some(true),
+            mouse_acceleration: Some(true),
+            windows_suggestions_on: vec![
+                "SilentInstalledAppsEnabled".into(),
+                "SubscribedContent-338388Enabled".into(),
+            ],
             ..Default::default()
         }
     }

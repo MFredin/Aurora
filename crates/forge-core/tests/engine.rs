@@ -34,6 +34,8 @@ fn sample_pc_produces_expected_findings() {
         "appx:Microsoft.BingNews",
         "display:refresh:Display 1",
         "gaming:dvr",
+        "gaming:mouse-accel",
+        "bloat:suggestions",
     ] {
         assert!(ids.contains(&want), "missing {want}; got {ids:?}");
     }
@@ -116,11 +118,7 @@ fn no_power_finding_when_not_on_balanced() {
 #[test]
 fn hardware_findings_offer_advice_not_a_fix() {
     let f = run(&Snapshot::sample_gaming_pc());
-    for id in [
-        "ram:xmp",
-        "display:refresh:Display 1",
-        "appx:Microsoft.BingNews",
-    ] {
+    for id in ["ram:xmp", "display:refresh:Display 1"] {
         let x = f.iter().find(|f| f.id == id).unwrap();
         assert!(x.fix.is_none() && x.advice.is_some(), "{id}");
     }
@@ -478,4 +476,141 @@ fn friendly_package_names() {
         "Candy Crush Saga"
     );
     assert_eq!(friendly_package("Microsoft.BingNews"), "Bing News");
+}
+
+// ---------- actions: app removal and settings ----------
+
+#[test]
+fn preinstalled_apps_get_a_removal_fix_marked_irreversible() {
+    let f = run(&Snapshot::sample_gaming_pc());
+    let candy = f
+        .iter()
+        .find(|f| f.id == "appx:king.com.CandyCrushSaga")
+        .unwrap();
+    let plan = candy.fix.as_ref().unwrap();
+    assert!(!plan.reversible);
+    assert_eq!(
+        candy.risk,
+        Risk::Caution,
+        "never part of the low-risk batch"
+    );
+    assert_eq!(candy.title, "Candy Crush Saga is preinstalled");
+}
+
+#[test]
+fn app_removal_is_limited_to_apps_the_db_marks_safe() {
+    let db = db();
+    let rm = |n: &str| FixStep::RemoveAppx {
+        package_name: n.into(),
+    };
+    assert!(validate(&rm("king.com.CandyCrushSaga"), &db).is_ok());
+    assert!(validate(&rm("Microsoft.BingNews"), &db).is_ok());
+    for bad in [
+        "Microsoft.WindowsStore",         // keep
+        "Microsoft.XboxIdentityProvider", // keep
+        "Microsoft.WindowsCalculator",    // unknown to the DB
+        "Microsoft.BingNews; del",        // not a package name
+        "",
+    ] {
+        assert!(validate(&rm(bad), &db).is_err(), "{bad} must be refused");
+    }
+}
+
+#[test]
+fn removal_has_no_inverse_and_shows_as_not_undoable() {
+    let e = entry(
+        9,
+        FixStep::RemoveAppx {
+            package_name: "Microsoft.BingNews".into(),
+        },
+        Prior::Package {
+            full_name: "Microsoft.BingNews_4.55.0.0_x64__8wekyb3d8bbwe".into(),
+        },
+    );
+    assert!(journal::inverse(&e).is_none());
+    let h = journal::history(&[
+        Record::Intent(e),
+        Record::Outcome {
+            id: 9,
+            outcome: Outcome::Applied,
+        },
+    ]);
+    assert_eq!(h[0].status, Status::Applied);
+    assert!(!h[0].undoable);
+}
+
+#[test]
+fn game_mode_fires_only_when_explicitly_off() {
+    let mut s = Snapshot::sample_gaming_pc();
+    assert!(!ids(&run(&s)).contains(&"gaming:game-mode"));
+    s.game_mode = None;
+    assert!(!ids(&run(&s)).contains(&"gaming:game-mode"));
+    s.game_mode = Some(false);
+    let f = run(&s);
+    let gm = f.iter().find(|f| f.id == "gaming:game-mode").unwrap();
+    for step in &gm.fix.as_ref().unwrap().steps {
+        validate(step, &db()).unwrap();
+    }
+}
+
+#[test]
+fn mouse_acceleration_fix_sets_all_three_values_and_undoes_to_text() {
+    let mut s = Snapshot::sample_gaming_pc();
+    let f = run(&s);
+    let m = f.iter().find(|f| f.id == "gaming:mouse-accel").unwrap();
+    let steps = &m.fix.as_ref().unwrap().steps;
+    assert_eq!(steps.len(), 3);
+    for step in steps {
+        validate(step, &db()).unwrap();
+    }
+    let e = entry(
+        3,
+        steps[1].clone(),
+        Prior::Text {
+            existed: true,
+            value: "6".into(),
+        },
+    );
+    let inv = journal::inverse(&e).unwrap();
+    assert!(matches!(&inv, FixStep::SetRegistryString { value, .. } if value == "6"));
+    validate(&inv, &db()).unwrap();
+    s.mouse_acceleration = Some(false);
+    assert!(!ids(&run(&s)).contains(&"gaming:mouse-accel"));
+}
+
+#[test]
+fn text_values_must_be_short_digits() {
+    let mk = |v: &str| FixStep::SetRegistryString {
+        hive: Hive::Hkcu,
+        key: r"Control Panel\Mouse".into(),
+        name: "MouseThreshold1".into(),
+        value: v.into(),
+    };
+    assert!(validate(&mk("0"), &db()).is_ok());
+    assert!(validate(&mk("10"), &db()).is_ok());
+    for bad in ["", "1; x", "-1", "99999", "abc"] {
+        assert!(validate(&mk(bad), &db()).is_err(), "{bad:?}");
+    }
+    let other_key = FixStep::SetRegistryString {
+        hive: Hive::Hkcu,
+        key: r"Control Panel\Desktop".into(),
+        name: "MouseThreshold1".into(),
+        value: "0".into(),
+    };
+    assert!(validate(&other_key, &db()).is_err());
+}
+
+#[test]
+fn suggestions_fix_turns_off_only_the_switches_that_are_on() {
+    let mut s = Snapshot::sample_gaming_pc();
+    let f = run(&s);
+    let sg = f.iter().find(|f| f.id == "bloat:suggestions").unwrap();
+    assert_eq!(sg.title, "Windows installs promoted apps on its own");
+    let steps = &sg.fix.as_ref().unwrap().steps;
+    assert_eq!(steps.len(), 2);
+    for step in steps {
+        validate(step, &db()).unwrap();
+    }
+    s.windows_suggestions_on.clear();
+    assert!(!ids(&run(&s)).contains(&"bloat:suggestions"));
 }

@@ -1,6 +1,6 @@
 //! Wire protocol between the unprivileged app and the elevated helper, plus the
 //! allowlist the helper enforces. The helper never executes anything outside this list.
-use crate::bloat::{BloatDb, Kind};
+use crate::bloat::{BloatDb, Kind, Verdict};
 use crate::model::{FixStep, Hive};
 use crate::power;
 use serde::{Deserialize, Serialize};
@@ -54,28 +54,83 @@ pub enum Response {
     },
 }
 
+/// What a registry value on the allowlist may be set to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Allowed {
+    Dword(&'static [u32]),
+    /// Short decimal text, e.g. the mouse threshold values ("0", "6", "10").
+    DigitText,
+}
+
 /// One registry value the helper may write, and the values it may set.
-pub struct DwordRule {
+pub struct RegRule {
     pub hive: Hive,
     pub key: &'static str,
     pub name: &'static str,
-    pub allowed: &'static [u32],
+    pub allowed: Allowed,
 }
 
-/// Registry values the helper may write. Everything else is refused.
-pub const DWORD_ALLOWLIST: &[DwordRule] = &[DwordRule {
+pub const GAME_DVR: &str = r"Software\Microsoft\Windows\CurrentVersion\GameDVR";
+pub const GAME_BAR: &str = r"Software\Microsoft\GameBar";
+pub const MOUSE: &str = r"Control Panel\Mouse";
+pub const CONTENT_DELIVERY: &str =
+    r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager";
+
+/// Windows "suggestions" switches: silently installed promoted apps, Start and Settings
+/// suggestions, and tips. All per user, 0 = off.
+pub const SUGGESTION_VALUES: [&str; 6] = [
+    "SilentInstalledAppsEnabled",
+    "SystemPaneSuggestionsEnabled",
+    "SubscribedContent-338388Enabled",
+    "SubscribedContent-338389Enabled",
+    "SubscribedContent-353694Enabled",
+    "SubscribedContent-353696Enabled",
+];
+
+pub const MOUSE_VALUES: [&str; 3] = ["MouseSpeed", "MouseThreshold1", "MouseThreshold2"];
+
+const fn dword(key: &'static str, name: &'static str) -> RegRule {
+    RegRule {
+        hive: Hive::Hkcu,
+        key,
+        name,
+        allowed: Allowed::Dword(&[0, 1]),
+    }
+}
+const fn digits(key: &'static str, name: &'static str) -> RegRule {
+    RegRule {
+        hive: Hive::Hkcu,
+        key,
+        name,
+        allowed: Allowed::DigitText,
+    }
+}
+
+/// Registry values the helper may write. Everything else is refused. All per user (HKCU), all
+/// user preferences with nothing to do with security.
+pub const REG_ALLOWLIST: &[RegRule] = &[
     // Game Bar "Record what happened" (background recording).
-    hive: Hive::Hkcu,
-    key: r"Software\Microsoft\Windows\CurrentVersion\GameDVR",
-    name: "HistoricalCaptureEnabled",
-    allowed: &[0, 1],
-}];
+    dword(GAME_DVR, "HistoricalCaptureEnabled"),
+    // Game Mode.
+    dword(GAME_BAR, "AutoGameModeEnabled"),
+    // "Enhance pointer precision" (mouse acceleration).
+    digits(MOUSE, "MouseSpeed"),
+    digits(MOUSE, "MouseThreshold1"),
+    digits(MOUSE, "MouseThreshold2"),
+    // Promoted apps and suggestions.
+    dword(CONTENT_DELIVERY, SUGGESTION_VALUES[0]),
+    dword(CONTENT_DELIVERY, SUGGESTION_VALUES[1]),
+    dword(CONTENT_DELIVERY, SUGGESTION_VALUES[2]),
+    dword(CONTENT_DELIVERY, SUGGESTION_VALUES[3]),
+    dword(CONTENT_DELIVERY, SUGGESTION_VALUES[4]),
+    dword(CONTENT_DELIVERY, SUGGESTION_VALUES[5]),
+];
 
 pub const MAX_NAME: usize = 260;
 pub const MAX_APPROVED_BYTES: usize = 64;
 
-fn dword_rule(hive: Hive, key: &str, name: &str) -> Option<&'static DwordRule> {
-    DWORD_ALLOWLIST.iter().find(|r| {
+pub fn reg_rule(hive: Hive, key: &str, name: &str) -> Option<&'static RegRule> {
+    REG_ALLOWLIST.iter().find(|r| {
         r.hive == hive && r.key.eq_ignore_ascii_case(key) && r.name.eq_ignore_ascii_case(name)
     })
 }
@@ -93,6 +148,10 @@ fn check_name(name: &str) -> Result<(), String> {
     }
 }
 
+fn not_listed(key: &str, name: &str) -> String {
+    format!("registry value {key}\\{name} is not on the allowlist")
+}
+
 /// The helper's allowlist. Runs on every request, independent of who produced the step.
 pub fn validate(step: &FixStep, db: &BloatDb) -> Result<(), String> {
     match step {
@@ -105,18 +164,30 @@ pub fn validate(step: &FixStep, db: &BloatDb) -> Result<(), String> {
             key,
             name,
             value,
-        } => match dword_rule(*hive, key, name) {
-            Some(r) if r.allowed.contains(value) => Ok(()),
+        } => match reg_rule(*hive, key, name).map(|r| r.allowed) {
+            Some(Allowed::Dword(ok)) if ok.contains(value) => Ok(()),
             Some(_) => Err(format!("value {value} is not allowed for {key}\\{name}")),
-            None => Err(format!(
-                "registry value {key}\\{name} is not on the allowlist"
-            )),
+            None => Err(not_listed(key, name)),
         },
-        FixStep::DeleteRegistryValue { hive, key, name } => match dword_rule(*hive, key, name) {
+        FixStep::SetRegistryString {
+            hive,
+            key,
+            name,
+            value,
+        } => match reg_rule(*hive, key, name).map(|r| r.allowed) {
+            Some(Allowed::DigitText)
+                if !value.is_empty()
+                    && value.len() <= 4
+                    && value.chars().all(|c| c.is_ascii_digit()) =>
+            {
+                Ok(())
+            }
+            Some(_) => Err(format!("value {value:?} is not allowed for {key}\\{name}")),
+            None => Err(not_listed(key, name)),
+        },
+        FixStep::DeleteRegistryValue { hive, key, name } => match reg_rule(*hive, key, name) {
             Some(_) => Ok(()),
-            None => Err(format!(
-                "registry value {key}\\{name} is not on the allowlist"
-            )),
+            None => Err(not_listed(key, name)),
         },
         FixStep::DisableStartupItem { name, .. } => {
             check_name(name)?;
@@ -134,6 +205,24 @@ pub fn validate(step: &FixStep, db: &BloatDb) -> Result<(), String> {
                 _ => Ok(()),
             }
         }
+        // Only apps the bloat database explicitly marks safe to remove. Never a keep entry,
+        // never an app the database doesn't know.
+        FixStep::RemoveAppx { package_name } => {
+            let well_formed = !package_name.is_empty()
+                && package_name.len() <= 128
+                && package_name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+            if !well_formed {
+                return Err("not a package name".into());
+            }
+            match db.lookup(Kind::Appx, package_name) {
+                Some(e) if e.verdict == Verdict::Safe => Ok(()),
+                _ => Err(format!(
+                    "{package_name} is not on Forge's list of apps that are safe to remove"
+                )),
+            }
+        }
     }
 }
 
@@ -146,6 +235,8 @@ pub fn describe(step: &FixStep) -> String {
         FixStep::RestoreStartupItem { name, .. } => format!("Let {name} start with Windows again"),
         FixStep::SetPowerPlan { guid } => format!("Switch the power plan to {}", power::name(guid)),
         FixStep::SetRegistryDword { name, value, .. } => format!("Set {name} to {value}"),
+        FixStep::SetRegistryString { name, value, .. } => format!("Set {name} to {value}"),
         FixStep::DeleteRegistryValue { name, .. } => format!("Remove the {name} setting"),
+        FixStep::RemoveAppx { package_name } => format!("Uninstall {package_name}"),
     }
 }

@@ -91,42 +91,58 @@
       "why": "Background updater. It can run on demand instead."
     },
     {
-      "advice": "If you don't use it, uninstall it from Settings > Apps > Installed apps. It mostly frees disk space. You can reinstall it from the Microsoft Store.",
+      "advice": "Removes it for your account. Forge can't put it back, but you can reinstall it from the Microsoft Store at any time.",
       "category": "bloat",
       "confidence": "high",
       "evidence": [
         "Packaged app: king.com.CandyCrushSaga"
       ],
-      "fix": null,
+      "fix": {
+        "reversible": false,
+        "steps": [
+          {
+            "op": "remove_appx",
+            "package_name": "king.com.CandyCrushSaga"
+          }
+        ]
+      },
       "id": "appx:king.com.CandyCrushSaga",
       "impact": {
         "boot_ms": 0,
         "idle_cpu_pct": 0.0,
         "idle_ram_mb": 0
       },
-      "priority": 0.10000000149011612,
-      "risk": "safe",
-      "score": 0.10000000149011612,
+      "priority": 0.30000001192092896,
+      "risk": "caution",
+      "score": 0.24000000953674316,
       "title": "Candy Crush Saga is preinstalled",
       "why": "Preinstalled promotional game. Not used by Windows."
     },
     {
-      "advice": "If you don't use it, uninstall it from Settings > Apps > Installed apps. It mostly frees disk space. You can reinstall it from the Microsoft Store.",
+      "advice": "Removes it for your account. Forge can't put it back, but you can reinstall it from the Microsoft Store at any time.",
       "category": "bloat",
       "confidence": "high",
       "evidence": [
         "Packaged app: Microsoft.BingNews"
       ],
-      "fix": null,
+      "fix": {
+        "reversible": false,
+        "steps": [
+          {
+            "op": "remove_appx",
+            "package_name": "Microsoft.BingNews"
+          }
+        ]
+      },
       "id": "appx:Microsoft.BingNews",
       "impact": {
         "boot_ms": 0,
         "idle_cpu_pct": 0.0,
         "idle_ram_mb": 0
       },
-      "priority": 0.10000000149011612,
-      "risk": "safe",
-      "score": 0.10000000149011612,
+      "priority": 0.30000001192092896,
+      "risk": "caution",
+      "score": 0.24000000953674316,
       "title": "Bing News is preinstalled",
       "why": "News feed app. No system component depends on it."
     },
@@ -248,6 +264,90 @@
       "score": 0.5600000023841858,
       "title": "Game Bar records gameplay in the background",
       "why": "\"Record what happened\" keeps encoding the last minutes of every game so you can save a clip. That costs some GPU and disk work while you play."
+    },
+    {
+      "advice": "Takes effect the next time you sign in. The pointer will feel slower at first; adjust the pointer speed in Settings if needed.",
+      "category": "gaming",
+      "confidence": "medium",
+      "evidence": [
+        "Control Panel\\Mouse\\MouseSpeed = 1"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "hive": "hkcu",
+            "key": "Control Panel\\Mouse",
+            "name": "MouseSpeed",
+            "op": "set_registry_string",
+            "value": "0"
+          },
+          {
+            "hive": "hkcu",
+            "key": "Control Panel\\Mouse",
+            "name": "MouseThreshold1",
+            "op": "set_registry_string",
+            "value": "0"
+          },
+          {
+            "hive": "hkcu",
+            "key": "Control Panel\\Mouse",
+            "name": "MouseThreshold2",
+            "op": "set_registry_string",
+            "value": "0"
+          }
+        ]
+      },
+      "id": "gaming:mouse-accel",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.6000000238418579,
+      "risk": "caution",
+      "score": 0.3360000252723694,
+      "title": "Mouse acceleration is on",
+      "why": "\"Enhance pointer precision\" makes the pointer travel further when you move the mouse faster, so the same hand movement doesn't always aim the same distance. Most players turn it off."
+    },
+    {
+      "advice": "Apps already installed stay until you remove them.",
+      "category": "bloat",
+      "confidence": "high",
+      "evidence": [
+        "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager\\SilentInstalledAppsEnabled = 1",
+        "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager\\SubscribedContent-338388Enabled = 1"
+      ],
+      "fix": {
+        "reversible": true,
+        "steps": [
+          {
+            "hive": "hkcu",
+            "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+            "name": "SilentInstalledAppsEnabled",
+            "op": "set_registry_dword",
+            "value": 0
+          },
+          {
+            "hive": "hkcu",
+            "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+            "name": "SubscribedContent-338388Enabled",
+            "op": "set_registry_dword",
+            "value": 0
+          }
+        ]
+      },
+      "id": "bloat:suggestions",
+      "impact": {
+        "boot_ms": 0,
+        "idle_cpu_pct": 0.0,
+        "idle_ram_mb": 0
+      },
+      "priority": 0.8999999761581421,
+      "risk": "safe",
+      "score": 0.8999999761581421,
+      "title": "Windows installs promoted apps on its own",
+      "why": "Windows uses these switches to add sponsored apps to Start, install promoted apps and show suggestions. Turning them off keeps removed apps from coming back."
     }
   ],
   "machine": {
@@ -288,10 +388,12 @@
       }
     ],
     "game_dvr_background": true,
+    "game_mode": true,
     "gpus": [
       "NVIDIA GeForce RTX 4070"
     ],
     "is_laptop": false,
+    "mouse_acceleration": true,
     "on_battery": false,
     "os": "Windows 11 25H2",
     "power_plans": [
@@ -344,18 +446,24 @@
         "location": "hklm_run",
         "name": "RtkAudUService"
       }
+    ],
+    "windows_suggestions_on": [
+      "SilentInstalledAppsEnabled",
+      "SubscribedContent-338388Enabled"
     ]
   },
   "order": [
     "display:refresh:Display 1",
     "storage:low:C:",
     "startup:AdobeGCInvoker-1.0",
+    "bloat:suggestions",
     "gaming:dvr",
     "startup:Discord",
     "startup:Spotify",
     "ram:xmp",
-    "power:plan",
+    "gaming:mouse-accel",
     "appx:king.com.CandyCrushSaga",
-    "appx:Microsoft.BingNews"
+    "appx:Microsoft.BingNews",
+    "power:plan"
   ]
 }

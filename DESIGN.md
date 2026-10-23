@@ -66,7 +66,7 @@ waits, and asserts on RSS and CPU.
   `journal::inverse` produces the undo step. History shows applied, failed, interrupted and undone.
 - **Restore point:** requested once per session before the first change (Windows may reuse one
   from the last 24 hours, or System Restore may be off; the UI says which).
-- **No irreversible operations:** packaged-app removal is advice only (ADR-008).
+- **One irreversible operation:** app removal, limited to apps the DB marks safe, labelled before the click, never batched (ADR-014).
 - **Advice-only findings:** firmware (XMP/EXPO), hardware (SSD, second DIMM) and display settings.
 - **Context rules:** no High performance plan on a laptop on battery, on dual-CCD X3D CPUs, or where
   the plan doesn't exist.
@@ -108,14 +108,14 @@ compiled, tested and packaged on a GitHub Windows runner. Nobody has run it on a
 
 | Area | State |
 |---|---|
-| Model, rules (8), engine, bloat DB, journal, allowlist | Built, 24 tests |
+| Model, rules (11), engine, bloat DB, journal, allowlist | Built, 31 tests |
 | Parsers (power names, StartupApproved, SMBIOS speeds/count/chassis, GPUs, refresh, sizes) | Built, 13 tests |
 | Helper protocol, write-ahead journal, undo, failure paths | Built, 7 tests with a fake executor |
 | Windows collectors (`forge-scan/src/win.rs`) | Type-checks and clippy clean for Windows; CI runs `dump_scan` on a runner. Not compared against a real PC yet |
 | Helper Windows executor, journal ACL, restore point | Type-checks and clippy clean for Windows. Not run elevated yet |
 | Tauri shell, named pipe + UAC launch | Type-checks and clippy clean for Windows. Not run yet |
 | UI | Built and viewed in Chromium in every state (idle, scanning, results, advice, applied, history, 820 px). Not viewed in WebView2 |
-| Installer | NSIS per-machine, built in CI. Unsigned |
+| Installer | NSIS per-machine, built in CI. Unsigned. Installed and run on a real laptop: scan, UAC, startup disable and the restore-point message work |
 | Not implemented | Prove step (benchmarks), driver/thermal checks, per-game profiles, Windows Update revert detection, EcoQoS, code signing, auto-update |
 
 ## 8. Next steps

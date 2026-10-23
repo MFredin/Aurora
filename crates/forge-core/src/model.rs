@@ -102,11 +102,23 @@ pub enum FixStep {
         name: String,
         value: u32,
     },
-    /// Inverse of `SetRegistryDword` when the value did not exist before.
+    /// A text registry value (e.g. mouse settings, which Windows stores as strings).
+    SetRegistryString {
+        hive: Hive,
+        key: String,
+        name: String,
+        value: String,
+    },
+    /// Inverse of `SetRegistry*` when the value did not exist before.
     DeleteRegistryValue {
         hive: Hive,
         key: String,
         name: String,
+    },
+    /// Uninstall a packaged app for the signed-in user. Not reversible: it can be reinstalled
+    /// from the Microsoft Store (ADR-014).
+    RemoveAppx {
+        package_name: String,
     },
 }
 

@@ -236,6 +236,7 @@ export default function App() {
 
 function Detail({ f, machine, status, onApply }: { f: Finding; machine: Machine | null; status: Status; onApply: () => void }) {
   const impact = describeImpact(f.impact);
+  const isRemoval = f.fix?.steps.some((st) => st.op === "remove_appx") ?? false;
   return (
     <article>
       <h2>{f.title}</h2>
@@ -253,7 +254,10 @@ function Detail({ f, machine, status, onApply }: { f: Finding; machine: Machine 
         {f.advice && <p className="muted">{f.advice}</p>}
         <p className="muted small">Windows asks for permission the first time you apply a fix in a session. Forge also asks Windows for a restore point first.</p>
         <button className="btn primary" onClick={onApply} disabled={status.kind === "applying" || status.kind === "applied"}>
-          {status.kind === "applying" ? "Applying" : status.kind === "applied" ? "Applied" : status.kind === "failed" ? "Try again" : "Apply fix"}
+          {status.kind === "applying" ? (isRemoval ? "Removing" : "Applying")
+            : status.kind === "applied" ? (isRemoval ? "Removed" : "Applied")
+            : status.kind === "failed" ? "Try again"
+            : isRemoval ? "Remove app" : "Apply fix"}
         </button>
         {status.kind === "failed" && <p className="error" role="alert">{status.message}</p>}
       </>) : f.advice && (<>

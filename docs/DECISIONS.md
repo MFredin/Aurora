@@ -42,7 +42,7 @@ Add new entries at the bottom. Format: context, decision, consequences. Mark sup
 - **Decision:** the app creates two single-instance, local-only, one-way named pipes (request and response; a shared duplex handle deadlocks because Windows serializes synchronous I/O per file object) with a random base name, launches `forge-helper.exe --pipe <name> --user-sid <sid>` with `ShellExecuteEx("runas")`, and accepts the connections only if the client PID on both is the process it launched. The helper exits after 5 minutes without a request or as soon as the app closes the pipe. Dev mode (`FORGE_HELPER_STDIO=1`) keeps unelevated stdio.
 - **Consequences:** one prompt covers a batch of fixes. A standard user who elevates with another account's credentials still changes their own settings, because "HKCU" steps go to `HKEY_USERS\<sid>` of the app's user. The helper still validates every request, so a process that squats the pipe name gains nothing.
 
-## ADR-008. Preinstalled apps are advice only in v0.1
+## ADR-008. Preinstalled apps are advice only in v0.1 (superseded by ADR-014)
 
 - **Context:** removing packaged apps without PowerShell means driving the WinRT package manager from the elevated helper, and removal can't be undone.
 - **Decision:** `RemoveAppx` is removed from `FixStep`. App findings point to Settings > Apps, which removes them cleanly and supports reinstall from the Store.
@@ -74,6 +74,12 @@ Add new entries at the bottom. Format: context, decision, consequences. Mark sup
 - **Memory integrity (HVCI/VBS)** costs some FPS but is a security control. Forge doesn't flag it or suggest turning it off (`SAFETY.md` never list).
 - **Anti-cheat:** M4 per-game priority, affinity and CPU-set changes must be checked against Vanguard, EasyAntiCheat and BattlEye before shipping; they can be read as tampering. Default to off for games with kernel anti-cheat until verified.
 - **Resizable BAR** is a firmware setting with no reliable read path without vendor APIs; left out until there is one.
+
+## ADR-014. Remove bloatware and change settings from the app
+
+- **Context:** the owner wants Forge to act, not just advise: remove preinstalled apps and apply settings fixes.
+- **Decision:** `RemoveAppx { package_name }` uninstalls an app for the signed-in user through the Windows package manager (WinRT `PackageManager`, via the `windows` crate already in the dependency tree). The helper allows it only for apps the bloat DB marks `safe` (never `keep`, never unknown apps), only when the elevated account is the app's user, and journals the full package name first. It is the one irreversible step: the plan says `reversible: false`, the button reads "Remove app", it is never in the low-risk batch, and History says to reinstall from the Store. Settings fixes are typed registry writes on an explicit per-user allowlist with allowed values: Game Mode, mouse acceleration (three text values, digits only), Game Bar background recording, and six Windows suggestion / promoted-app switches. All are undoable.
+- **Consequences:** Windows feature updates can reinstall some inbox apps; turning off promoted-app installs reduces that. Curating the app list (BLOAT-DB.md) now matters more, because entries cause real removals.
 
 ## Open questions
 

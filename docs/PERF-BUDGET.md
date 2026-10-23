@@ -7,7 +7,7 @@ every "current" cell below is unmeasured.
 |---|---|---|
 | Idle CPU (window open, nothing happening) | about 0% | unmeasured |
 | Idle CPU (window minimized or hidden) | 0% | unmeasured |
-| Idle memory, app + all WebView2 children (private working set) | Decide at M1 (suggested starting point: under 150 MB) | unmeasured |
+| Idle memory, app + all WebView2 children (private working set) | Decide at M1 (suggested starting point: under 150 MB) | **442 MB working set across 8 processes** (first real run, Intel Core 5 320 laptop on battery, self-meter; working set overstates private memory). Over the suggested budget: see "The WebView2 question" |
 | Cold start to interactive | under 1.5 s on a mid-range laptop | unmeasured |
 | Full scan duration | under 5 s | unmeasured |
 | Frame drops in a running game during a scan | none visible (frametime spikes within noise) | unmeasured |

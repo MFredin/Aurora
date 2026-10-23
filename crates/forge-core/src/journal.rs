@@ -23,6 +23,14 @@ pub enum Prior {
         existed: bool,
         value: u32,
     },
+    Text {
+        existed: bool,
+        value: String,
+    },
+    /// A removed app package. Kept for the record; there is no automatic inverse.
+    Package {
+        full_name: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -113,6 +121,27 @@ pub fn inverse(e: &Entry) -> Option<FixStep> {
                 name: name.clone(),
             }
         }),
+        (
+            FixStep::SetRegistryString {
+                hive, key, name, ..
+            }
+            | FixStep::DeleteRegistryValue { hive, key, name },
+            Prior::Text { existed, value },
+        ) => Some(if *existed {
+            FixStep::SetRegistryString {
+                hive: *hive,
+                key: key.clone(),
+                name: name.clone(),
+                value: value.clone(),
+            }
+        } else {
+            FixStep::DeleteRegistryValue {
+                hive: *hive,
+                key: key.clone(),
+                name: name.clone(),
+            }
+        }),
+        // App removal (Prior::Package) has no automatic inverse.
         _ => None,
     }
 }

@@ -1,6 +1,7 @@
 //! Windows-only collectors. Everything here is cheap: registry reads, a few Win32 queries and one
 //! firmware-table call. No WMI, no PowerShell, no child processes.
 use crate::{parse, smbios};
+use forge_core::ipc;
 use forge_core::model::{Hive, StartupLocation};
 use forge_core::snapshot::{DiskKind, Display, PowerPlan, Snapshot, StartupItem};
 use std::path::PathBuf;
@@ -10,7 +11,6 @@ use winreg::enums::*;
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN32: &str = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run";
 const POWER_SCHEMES: &str = r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes";
-const GAME_DVR: &str = r"Software\Microsoft\Windows\CurrentVersion\GameDVR";
 
 pub fn fill(s: &mut Snapshot) {
     s.startup = read_startup();
@@ -29,7 +29,14 @@ pub fn fill(s: &mut Snapshot) {
     // Chassis type is the better signal (a desktop on a UPS reports a battery).
     s.is_laptop = info.portable.unwrap_or(has_battery);
     s.game_dvr_background =
-        read_dword(Hive::Hkcu, GAME_DVR, "HistoricalCaptureEnabled").map(|v| v == 1);
+        read_dword(Hive::Hkcu, ipc::GAME_DVR, "HistoricalCaptureEnabled").map(|v| v == 1);
+    s.game_mode = read_dword(Hive::Hkcu, ipc::GAME_BAR, "AutoGameModeEnabled").map(|v| v == 1);
+    s.mouse_acceleration = read_text(Hive::Hkcu, ipc::MOUSE, "MouseSpeed").map(|v| v.trim() != "0");
+    s.windows_suggestions_on = ipc::SUGGESTION_VALUES
+        .iter()
+        .filter(|n| read_dword(Hive::Hkcu, ipc::CONTENT_DELIVERY, n) == Some(1))
+        .map(|n| n.to_string())
+        .collect();
     for d in &mut s.disks {
         if let Some(k) = disk_kind(&d.mount) {
             d.kind = k;
@@ -49,6 +56,14 @@ fn read_dword(hive: Hive, key: &str, name: &str) -> Option<u32> {
         .open_subkey_with_flags(key, KEY_READ)
         .ok()?
         .get_value::<u32, _>(name)
+        .ok()
+}
+
+fn read_text(hive: Hive, key: &str, name: &str) -> Option<String> {
+    hkey(hive)
+        .open_subkey_with_flags(key, KEY_READ)
+        .ok()?
+        .get_value::<String, _>(name)
         .ok()
 }
 

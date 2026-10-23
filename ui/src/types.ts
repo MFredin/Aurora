@@ -12,7 +12,9 @@ export type FixStep =
   | { op: "restore_startup_item"; name: string; location: StartupLocation; prior: number[] | null }
   | { op: "set_power_plan"; guid: string }
   | { op: "set_registry_dword"; hive: string; key: string; name: string; value: number }
-  | { op: "delete_registry_value"; hive: string; key: string; name: string };
+  | { op: "set_registry_string"; hive: string; key: string; name: string; value: string }
+  | { op: "delete_registry_value"; hive: string; key: string; name: string }
+  | { op: "remove_appx"; package_name: string };
 
 export interface Finding {
   id: string;

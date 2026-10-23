@@ -84,6 +84,111 @@ impl WinExec {
     }
 }
 
+fn utf16_text(bytes: &[u8]) -> String {
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .take_while(|u| *u != 0)
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
+impl WinExec {
+    /// App removal acts on the account the helper runs as. Refuse if that isn't the user who
+    /// runs the app (a standard user who approved the prompt with an administrator's password).
+    fn same_user_as_app(&self) -> Result<(), String> {
+        match &self.user_sid {
+            None => Ok(()),
+            Some(sid) if own_sid().as_deref() == Some(sid.as_str()) => Ok(()),
+            Some(_) => Err("Windows gave permission to a different account, so Forge can't remove apps for you. Remove it from Settings > Apps > Installed apps instead.".into()),
+        }
+    }
+}
+
+fn own_sid() -> Option<String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LocalFree};
+    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut tok: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok) == 0 {
+            return None;
+        }
+        let mut len = 0u32;
+        GetTokenInformation(tok, TokenUser, std::ptr::null_mut(), 0, &mut len);
+        let mut buf = vec![0u8; len as usize];
+        let ok = GetTokenInformation(tok, TokenUser, buf.as_mut_ptr().cast(), len, &mut len);
+        CloseHandle(tok);
+        if ok == 0 {
+            return None;
+        }
+        let user = &*(buf.as_ptr() as *const TOKEN_USER);
+        let mut s: *mut u16 = std::ptr::null_mut();
+        if ConvertSidToStringSidW(user.User.Sid, &mut s) == 0 {
+            return None;
+        }
+        let mut n = 0;
+        while *s.add(n) != 0 {
+            n += 1;
+        }
+        let sid = String::from_utf16_lossy(std::slice::from_raw_parts(s, n));
+        LocalFree(s as _);
+        Some(sid)
+    }
+}
+
+/// Packaged apps through the Windows package manager (no PowerShell).
+mod appx {
+    use windows::Management::Deployment::PackageManager;
+    use windows::core::HSTRING;
+
+    fn msg(e: windows::core::Error) -> String {
+        e.message().to_string()
+    }
+
+    /// Full name of `name` installed for the current user.
+    pub fn find(name: &str) -> Result<String, String> {
+        let pm = PackageManager::new().map_err(msg)?;
+        let pkgs = pm
+            .FindPackagesByUserSecurityId(&HSTRING::new())
+            .map_err(msg)?;
+        for p in pkgs {
+            let Ok(id) = p.Id() else { continue };
+            if id
+                .Name()
+                .is_ok_and(|n| n.to_string().eq_ignore_ascii_case(name))
+            {
+                return id.FullName().map(|f| f.to_string()).map_err(msg);
+            }
+        }
+        Err(format!("{name} is no longer installed. Scan again."))
+    }
+
+    pub fn remove(full_name: &str) -> Result<(), String> {
+        let pm = PackageManager::new().map_err(msg)?;
+        let result = pm
+            .RemovePackageAsync(&HSTRING::from(full_name))
+            .map_err(msg)?
+            .join()
+            .map_err(msg)?;
+        let code = result.ExtendedErrorCode().map_err(msg)?;
+        if code.is_ok() {
+            Ok(())
+        } else {
+            let text = result
+                .ErrorText()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
+            Err(if text.is_empty() {
+                format!("Windows could not remove the app ({code:?}).")
+            } else {
+                text
+            })
+        }
+    }
+}
+
 fn filetime_now() -> u64 {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
@@ -161,21 +266,50 @@ impl Executor for WinExec {
             FixStep::SetRegistryDword {
                 hive, key, name, ..
             }
+            | FixStep::SetRegistryString {
+                hive, key, name, ..
+            }
             | FixStep::DeleteRegistryValue { hive, key, name } => {
-                match self.read_raw(*hive, key, name) {
-                    Some(v) if v.vtype == REG_DWORD && v.bytes.len() >= 4 => Prior::Dword {
+                let wants_text = match step {
+                    FixStep::SetRegistryString { .. } => true,
+                    FixStep::SetRegistryDword { .. } => false,
+                    _ => matches!(
+                        forge_core::ipc::reg_rule(*hive, key, name).map(|r| r.allowed),
+                        Some(forge_core::ipc::Allowed::DigitText)
+                    ),
+                };
+                match (self.read_raw(*hive, key, name), wants_text) {
+                    (Some(v), false) if v.vtype == REG_DWORD && v.bytes.len() >= 4 => {
+                        Prior::Dword {
+                            existed: true,
+                            value: u32::from_le_bytes([
+                                v.bytes[0], v.bytes[1], v.bytes[2], v.bytes[3],
+                            ]),
+                        }
+                    }
+                    (Some(v), true) if v.vtype == REG_SZ => Prior::Text {
                         existed: true,
-                        value: u32::from_le_bytes([v.bytes[0], v.bytes[1], v.bytes[2], v.bytes[3]]),
+                        value: utf16_text(&v.bytes),
                     },
-                    Some(_) => {
+                    (Some(_), _) => {
                         return Err(format!(
                             "{name} has an unexpected type, so Forge left it alone."
                         ));
                     }
-                    None => Prior::Dword {
+                    (None, false) => Prior::Dword {
                         existed: false,
                         value: 0,
                     },
+                    (None, true) => Prior::Text {
+                        existed: false,
+                        value: String::new(),
+                    },
+                }
+            }
+            FixStep::RemoveAppx { package_name } => {
+                self.same_user_as_app()?;
+                Prior::Package {
+                    full_name: appx::find(package_name)?,
                 }
             }
         })
@@ -212,7 +346,28 @@ impl Executor for WinExec {
                 };
                 self.write_raw(*hive, key, name, &v)
             }
+            FixStep::SetRegistryString {
+                hive,
+                key,
+                name,
+                value,
+            } => {
+                let v = RegValue {
+                    bytes: value
+                        .encode_utf16()
+                        .chain([0])
+                        .flat_map(u16::to_le_bytes)
+                        .collect::<Vec<u8>>()
+                        .into(),
+                    vtype: REG_SZ,
+                };
+                self.write_raw(*hive, key, name, &v)
+            }
             FixStep::DeleteRegistryValue { hive, key, name } => self.delete(*hive, key, name),
+            FixStep::RemoveAppx { package_name } => {
+                self.same_user_as_app()?;
+                appx::remove(&appx::find(package_name)?)
+            }
         }
     }
 

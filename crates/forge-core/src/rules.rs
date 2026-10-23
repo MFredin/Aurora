@@ -1,6 +1,6 @@
 //! Rules turn a Snapshot into findings. Pure functions: easy to test, no I/O.
 use crate::bloat::{BloatDb, Kind, Verdict};
-use crate::ipc::DWORD_ALLOWLIST;
+use crate::ipc::{CONTENT_DELIVERY, GAME_BAR, GAME_DVR, MOUSE, MOUSE_VALUES};
 use crate::model::*;
 use crate::power;
 use crate::snapshot::{DiskKind, Snapshot};
@@ -20,6 +20,9 @@ pub fn default_rules() -> Vec<Box<dyn Rule>> {
         Box::new(StorageRule),
         Box::new(RefreshRateRule),
         Box::new(GameDvrRule),
+        Box::new(GameModeRule),
+        Box::new(MouseAccelRule),
+        Box::new(SuggestionsRule),
     ]
 }
 
@@ -97,8 +100,8 @@ impl Rule for StartupRule {
     }
 }
 
-/// Advice only: removing packaged apps needs the Windows package manager, which Forge does not
-/// drive yet (ADR-008). Settings removes them cleanly and the Store reinstalls them.
+/// Uninstalls apps the bloat database marks safe. Not reversible; the Store reinstalls them
+/// (ADR-014).
 pub struct AppxRule;
 impl Rule for AppxRule {
     fn id(&self) -> &'static str {
@@ -119,9 +122,16 @@ impl Rule for AppxRule {
                 );
                 f.why = e.reason.clone();
                 f.evidence = vec![format!("Packaged app: {pkg}")];
-                f.priority = 0.1;
+                f.priority = 0.3;
+                f.risk = Risk::Caution;
+                f.fix = Some(FixPlan {
+                    steps: vec![FixStep::RemoveAppx {
+                        package_name: pkg.clone(),
+                    }],
+                    reversible: false,
+                });
                 f.advice = Some(
-                    "If you don't use it, uninstall it from Settings > Apps > Installed apps. It mostly frees disk space. You can reinstall it from the Microsoft Store."
+                    "Removes it for your account. Forge can't put it back, but you can reinstall it from the Microsoft Store at any time."
                         .into(),
                 );
                 Some(f)
@@ -341,26 +351,141 @@ impl Rule for GameDvrRule {
         if s.game_dvr_background != Some(true) {
             return vec![];
         }
-        let r = &DWORD_ALLOWLIST[0];
         let mut f = finding(
             "gaming:dvr".into(),
             Category::Gaming,
             "Game Bar records gameplay in the background".into(),
         );
         f.why = "\"Record what happened\" keeps encoding the last minutes of every game so you can save a clip. That costs some GPU and disk work while you play.".into();
-        f.evidence = vec![format!("{}\\{} = 1", r.key, r.name)];
+        f.evidence = vec![format!("{GAME_DVR}\\HistoricalCaptureEnabled = 1")];
         f.confidence = Confidence::Medium;
         f.priority = 0.8;
         f.fix = Some(FixPlan {
             steps: vec![FixStep::SetRegistryDword {
-                hive: r.hive,
-                key: r.key.into(),
-                name: r.name.into(),
+                hive: Hive::Hkcu,
+                key: GAME_DVR.into(),
+                name: "HistoricalCaptureEnabled".into(),
                 value: 0,
             }],
             reversible: true,
         });
         f.advice = Some("Screenshots and manual recording (Win + Alt + R) keep working.".into());
+        vec![f]
+    }
+}
+
+pub struct GameModeRule;
+impl Rule for GameModeRule {
+    fn id(&self) -> &'static str {
+        "game-mode"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        // Missing means the Windows default, which is on. Only flag an explicit off.
+        if s.game_mode != Some(false) {
+            return vec![];
+        }
+        let mut f = finding(
+            "gaming:game-mode".into(),
+            Category::Gaming,
+            "Game Mode is turned off".into(),
+        );
+        f.why = "Game Mode tells Windows to hold back updates, notifications and background work while a game runs.".into();
+        f.evidence = vec![format!("{GAME_BAR}\\AutoGameModeEnabled = 0")];
+        f.confidence = Confidence::Medium;
+        f.priority = 0.7;
+        f.fix = Some(FixPlan {
+            steps: vec![FixStep::SetRegistryDword {
+                hive: Hive::Hkcu,
+                key: GAME_BAR.into(),
+                name: "AutoGameModeEnabled".into(),
+                value: 1,
+            }],
+            reversible: true,
+        });
+        vec![f]
+    }
+}
+
+pub struct MouseAccelRule;
+impl Rule for MouseAccelRule {
+    fn id(&self) -> &'static str {
+        "mouse-accel"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        if s.mouse_acceleration != Some(true) {
+            return vec![];
+        }
+        let mut f = finding(
+            "gaming:mouse-accel".into(),
+            Category::Gaming,
+            "Mouse acceleration is on".into(),
+        );
+        f.why = "\"Enhance pointer precision\" makes the pointer travel further when you move the mouse faster, so the same hand movement doesn't always aim the same distance. Most players turn it off.".into();
+        f.evidence = vec![format!("{MOUSE}\\MouseSpeed = 1")];
+        // A matter of feel, so never part of the low-risk batch.
+        f.risk = Risk::Caution;
+        f.confidence = Confidence::Medium;
+        f.priority = 0.6;
+        f.fix = Some(FixPlan {
+            steps: MOUSE_VALUES
+                .iter()
+                .map(|n| FixStep::SetRegistryString {
+                    hive: Hive::Hkcu,
+                    key: MOUSE.into(),
+                    name: (*n).into(),
+                    value: "0".into(),
+                })
+                .collect(),
+            reversible: true,
+        });
+        f.advice = Some("Takes effect the next time you sign in. The pointer will feel slower at first; adjust the pointer speed in Settings if needed.".into());
+        vec![f]
+    }
+}
+
+pub struct SuggestionsRule;
+impl Rule for SuggestionsRule {
+    fn id(&self) -> &'static str {
+        "suggestions"
+    }
+    fn evaluate(&self, s: &Snapshot, _: &BloatDb) -> Vec<Finding> {
+        if s.windows_suggestions_on.is_empty() {
+            return vec![];
+        }
+        let installs = s
+            .windows_suggestions_on
+            .iter()
+            .any(|n| n == "SilentInstalledAppsEnabled");
+        let mut f = finding(
+            "bloat:suggestions".into(),
+            Category::Bloat,
+            if installs {
+                "Windows installs promoted apps on its own".into()
+            } else {
+                "Windows shows app suggestions and tips".into()
+            },
+        );
+        f.why = "Windows uses these switches to add sponsored apps to Start, install promoted apps and show suggestions. Turning them off keeps removed apps from coming back.".into();
+        f.evidence = s
+            .windows_suggestions_on
+            .iter()
+            .map(|n| format!("{CONTENT_DELIVERY}\\{n} = 1"))
+            .collect();
+        f.priority = 0.9;
+        f.fix = Some(FixPlan {
+            steps: s
+                .windows_suggestions_on
+                .iter()
+                .map(|n| FixStep::SetRegistryDword {
+                    hive: Hive::Hkcu,
+                    key: CONTENT_DELIVERY.into(),
+                    name: n.clone(),
+                    value: 0,
+                })
+                .collect(),
+            reversible: true,
+        });
+        f.advice = Some("Apps already installed stay until you remove them.".into());
         vec![f]
     }
 }

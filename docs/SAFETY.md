@@ -33,7 +33,7 @@ change that touches the system must clear.
 - Installing drivers or software on the user's behalf.
 - Telemetry that leaves the machine without explicit opt-in.
 - Recommending that Memory integrity (HVCI/VBS) or other security features be turned off, even as advice.
-- Irreversible operations in the helper (packaged-app removal stays advice-only until it has a curated DB and a reinstall path, ADR-008).
+- Irreversible operations other than app removal, which is limited to apps the DB marks safe and always labelled as not undoable (ADR-014).
 
 ## Review checklist for any PR that touches the system
 

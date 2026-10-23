@@ -32,6 +32,9 @@ export default function History({ items, error, undoing, machine, onUndo }: Prop
                     {state && state !== "busy" && <div className="error small" role="alert">{state}</div>}
                   </div>
                   <span className={`status ${h.status}`}>{STATUS_LABEL[h.status]}</span>
+                  {!h.undoable && h.status === "applied" && h.step.op === "remove_appx" && (
+                    <span className="muted small">Reinstall it from the Microsoft Store if you need it</span>
+                  )}
                   {h.undoable && (
                     <button className="btn" onClick={() => onUndo(h)} disabled={state === "busy"}>
                       {state === "busy" ? "Undoing" : "Undo"}

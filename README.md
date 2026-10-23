@@ -22,13 +22,16 @@ Every change is listed under **History** with **Undo**. Uninstall from Settings 
 | Area | Check | Fix |
 |---|---|---|
 | Gaming | Monitor running below its highest refresh rate | Advice (Settings path) |
-| Gaming | Game Bar background recording on | Reversible registry change |
+| Gaming | Game Bar background recording on | Turn off; undoable |
+| Gaming | Game Mode turned off | Turn on; undoable |
+| Gaming | Mouse acceleration on | Turn off; undoable |
 | Startup | Known heavy or unnecessary startup items (Run keys incl. 32-bit, Startup folders) | Disable, same as Task Manager; undoable |
 | Memory | RAM slower than rated (XMP/EXPO off) | Advice only (BIOS) |
 | Memory | Single memory module on a desktop | Advice only (hardware) |
 | Storage | System drive under 10% free; Windows on a hard drive | Advice only |
 | Power | Balanced plan on a desktop or plugged-in laptop (skipped on dual-CCD X3D CPUs, on battery, and where High performance doesn't exist) | Switch plan; undoable |
-| Preinstalled apps | Known removable apps | Advice (Settings > Apps) |
+| Preinstalled apps | Known removable apps (only those the bloat DB marks safe) | Uninstall for your account; not undoable, reinstall from the Store |
+| Preinstalled apps | Windows installing promoted apps and showing suggestions | Turn off; undoable |
 
 It never touches Defender, firewall, UAC, Windows Update, services, drivers or firmware
 (`docs/SAFETY.md`).
