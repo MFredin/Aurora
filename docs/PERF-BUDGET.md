@@ -51,6 +51,32 @@ Manual method (for reference):
 - Collectors don't use WMI, PowerShell or any child process (the power plan is now read from the registry). Adding one requires an ADR.
 - Add EcoQoS (`SetProcessInformation` with `ProcessPowerThrottling`) to the app process while idle or hidden.
 
+## Measurements
+
+### GitHub Windows runner, 2026-10-23 (CI run 39967116564)
+
+AMD EPYC 7763, 4 logical cores, 16 GB, **no GPU** (software rendering). Private working set summed
+over the process tree, after 30 s idle, sampled over 20 s.
+
+| Setup | Cold start | Focused memory | Focused CPU | Minimized memory | Minimized CPU | Processes |
+|---|---|---|---|---|---|---|
+| WebView2 (as shipped) | 3109 ms (first launch ever on the machine) | 72.2 MB | 0.21% | 67.5 MB | 0.23% | 7 |
+| WebView2, lean args | 559 ms | 65.1 MB | 0.18% | 61.3 MB | 0.33% | 7 |
+| WebView2, no GPU | 600 ms | 65.1 MB | 0.16% | 61.1 MB | 0.37% | 7 |
+| Native egui probe | 543 ms | 15.5 MB | 0% | 15.5 MB | 0% | 1 |
+
+Reading:
+- WebView2 is within the suggested 150 MB budget on private memory (about 65 to 72 MB, of which the
+  app process is about 4 MB). The 442 MB the app showed on a real laptop is the in-app meter's
+  working set, which counts shared pages; it is not what Task Manager's Memory column shows.
+- Cold start is about 0.6 s once WebView2's data folder exists; the 3.1 s is the very first launch.
+- Misses: minimized CPU is 0.2 to 0.4%, not 0%, so the webview keeps working while minimized; and
+  the in-app meter overstates memory. Both are fixable without changing UI technology.
+- The lean arguments save about 7 MB (10%); not worth it on their own.
+- Native costs about 55 MB less and nothing at idle, at the price of rebuilding the UI in egui.
+
+Still needed: the same script on a real laptop and desktop (real GPU, real drivers).
+
 ## The WebView2 question (decide in M1)
 
 WebView2 is already on Windows 11, but it spawns several processes whose memory counts. If the measured
