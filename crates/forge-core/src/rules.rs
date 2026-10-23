@@ -722,6 +722,13 @@ pub fn days_between(a: &str, b: &str) -> Option<i64> {
     Some(days(b)? - days(a)?)
 }
 
+/// The only web pages the app will open from advice text. The shell refuses any other URL.
+pub const HELP_LINKS: &[&str] = &[
+    "https://www.nvidia.com/drivers",
+    "https://www.amd.com/en/support/download/drivers.html",
+    "https://www.intel.com/content/www/us/en/support/detect.html",
+];
+
 pub struct GpuDriverRule;
 impl Rule for GpuDriverRule {
     fn id(&self) -> &'static str {
@@ -738,11 +745,11 @@ impl Rule for GpuDriverRule {
                 }
                 let l = g.name.to_lowercase();
                 let link = if l.contains("nvidia") {
-                    "https://www.nvidia.com/drivers"
+                    HELP_LINKS[0]
                 } else if l.contains("amd") || l.contains("radeon") {
-                    "https://www.amd.com/en/support/download/drivers.html"
+                    HELP_LINKS[1]
                 } else if l.contains("intel") {
-                    "https://www.intel.com/content/www/us/en/support/detect.html"
+                    HELP_LINKS[2]
                 } else {
                     return None;
                 };

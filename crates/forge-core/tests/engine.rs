@@ -733,6 +733,13 @@ fn gpu_driver_age() {
     let f = run(&s);
     let d = f.iter().find(|f| f.id.starts_with("driver:gpu:")).unwrap();
     assert!(d.fix.is_none() && d.advice.as_ref().unwrap().contains("nvidia.com"));
+    // The shell opens only exact HELP_LINKS entries, so the advice must quote one verbatim.
+    let advice = d.advice.as_ref().unwrap();
+    assert!(
+        forge_core::rules::HELP_LINKS
+            .iter()
+            .any(|l| advice.contains(&format!("{l}.")))
+    );
     s.gpu_drivers[0].date = Some("2026-09-01".into());
     assert!(!run(&s).iter().any(|f| f.id.starts_with("driver:gpu:")));
     s.gpu_drivers[0].date = Some("2020-01-01".into());

@@ -141,8 +141,15 @@ export interface Change { key: number; items: HistoryItem[]; first: HistoryItem;
 export function groupChanges(items: HistoryItem[]): Change[] {
   const out: Change[] = [];
   const byKey = new Map<number, Change>();
+  const keyOf = new Map<number, number>();
+  let prev: HistoryItem | null = null;
   for (const h of items) {
-    const key = h.group ?? h.id;
+    // Entries journaled before change groups existed: steps of one fix share a finding and a moment.
+    const legacy = h.group == null && prev && prev.group == null && prev.finding_id === h.finding_id
+      && prev.status === h.status && Math.abs(prev.unix_ts - h.unix_ts) <= 5;
+    const key = legacy && prev ? keyOf.get(prev.id)! : h.group ?? h.id;
+    keyOf.set(h.id, key);
+    prev = h;
     let c = byKey.get(key);
     if (!c) {
       c = { key, items: [], first: h, undoable: false, status: h.status };

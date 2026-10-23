@@ -91,6 +91,12 @@ export async function selfStats(): Promise<SelfStats> {
 }
 
 /** Tells the shell the first frame is on screen (cold-start measurement; no-op unless measuring). */
+/** Opens one of the vendor pages advice links to. The shell refuses any other address. */
+export async function openLink(url: string): Promise<void> {
+  if (inTauri) return invoke("open_link", { url });
+  window.open(url, "_blank", "noopener");
+}
+
 export function uiReady(): void {
   if (inTauri) invoke("ui_ready").catch(() => {});
 }

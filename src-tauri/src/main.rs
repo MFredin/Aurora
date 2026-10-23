@@ -309,6 +309,50 @@ fn history() -> Result<Vec<journal::Item>, String> {
         .map_err(|e| format!("Could not read History ({}): {e}", path.display()))
 }
 
+/// Opens a vendor page from advice text in the default browser. Only the exact URLs in
+/// `rules::HELP_LINKS` are allowed, so the webview can't use this to open anything else.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    if !forge_core::rules::HELP_LINKS.contains(&url.as_str()) {
+        return Err("Forge only opens the driver pages it links to.".into());
+    }
+    open_in_browser(&url)
+}
+
+#[cfg(windows)]
+fn open_in_browser(url: &str) -> Result<(), String> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let wide = |s: &str| {
+        s.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    let (verb, file) = (wide("open"), wide(url));
+    // SAFETY: both strings are NUL-terminated and outlive the call.
+    let r = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW returns a value greater than 32 on success.
+    if r as isize > 32 {
+        Ok(())
+    } else {
+        Err("Windows couldn't open your browser. Copy the address instead.".into())
+    }
+}
+
+#[cfg(not(windows))]
+fn open_in_browser(_url: &str) -> Result<(), String> {
+    Err("Opening links is only supported on Windows.".into())
+}
+
 #[tauri::command]
 fn self_stats(state: State<'_, AppState>) -> SelfStats {
     lock(&state.meter).sample()
@@ -385,6 +429,7 @@ fn main() {
             undo,
             history,
             self_stats,
+            open_link,
             ui_ready
         ])
         .run(tauri::generate_context!())
